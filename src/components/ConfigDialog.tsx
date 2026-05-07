@@ -55,7 +55,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
     if (step !== "qrcode" || !open) return;
 
     let errorCountLocal = 0;
-    const maxErrors = 5;
+    const maxErrors = 10; // Aumentado para tolerar instabilidades na Fzap
 
     const interval = setInterval(async () => {
       try {
@@ -80,7 +80,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
         setPollingFailed(false);
 
         // QR code atualizado pode vir no status — atualizar na tela
-        if (data.qrCode && data.qrCode !== qrCode) {
+        if (data.qrCode && data.qrCode.length > 50 && data.qrCode !== qrCode) {
           setQrCode(data.qrCode);
         }
 
