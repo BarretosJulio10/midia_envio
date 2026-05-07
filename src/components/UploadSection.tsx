@@ -218,7 +218,7 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
             file_url: publicUrl,
             status: 'queued',
             file_type: sendAsSticker ? 'sticker' : (sendAsDocument ? 'document' : undefined)
-          });
+          } as any);
 
           successCount++;
         }
