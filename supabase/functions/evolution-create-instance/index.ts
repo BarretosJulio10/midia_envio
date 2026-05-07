@@ -60,7 +60,9 @@ Deno.serve(async (req: Request) => {
     const instanceToken = createData.data?.token ?? generatedToken;
 
     // 2. INICIAR SESSÃO (CONNECT)
-    // Conforme Spec: POST /session/connect com header token: <session_token>
+    // Conforme Spec Fzap v1.23.0: POST /session/connect com header token: <session_token>
+    // immediate:false faz o servidor Fzap aguardar até 10s pela conexão WhatsApp,
+    // dando tempo para o QR ser gerado antes mesmo do nosso polling começar.
     console.log(`[Master] Iniciando sessão para: ${instance_name}`);
     const connectRes = await fetch(`${fzapUrl}/session/connect`, {
       method: 'POST',
@@ -68,19 +70,20 @@ Deno.serve(async (req: Request) => {
         'Content-Type': 'application/json',
         'token': instanceToken
       },
-      body: JSON.stringify({ immediate: true }), // immediate: true para não travar o worker enquanto aguarda conexao
+      body: JSON.stringify({ immediate: false }),
     });
 
     const connectData = await connectRes.json();
     console.log(`[Master] Resposta Connect:`, JSON.stringify(connectData));
 
     // 3. POLLING INTERNO PARA CAPTURAR PRIMEIRO QR CODE
-    // Conforme Spec: Poll GET /session/qr até data.QRCode ser não-vazio
+    // Conforme Spec: Poll GET /session/qr até data.QRCode ser não-vazio.
+    // Tentativa robusta para múltiplos formatos de resposta (QRCode, qrcode, qr, base64).
     let qrCode = "";
     console.log(`[Master] Buscando primeiro QR Code (polling estendido)...`);
     
-    // Aumentado para 15 tentativas (30 segundos total) pois o QR pode demorar para ser gerado pela Fzap
-    for (let i = 0; i < 15; i++) {
+    // 20 tentativas × 2s = 40s de polling. Fzap geralmente emite em 3-15s.
+    for (let i = 0; i < 20; i++) {
       await new Promise(resolve => setTimeout(resolve, 2000)); 
       
       const qrRes = await fetch(`${fzapUrl}/session/qr`, {
@@ -91,10 +94,22 @@ Deno.serve(async (req: Request) => {
       });
 
       if (qrRes.ok) {
-        const qrData = await qrRes.json();
-        console.log(`[Master] Tentativa ${i+1} de buscar QR:`, qrData.data?.QRCode ? "Encontrado" : "Vazio");
-        
-        let code = qrData.data?.QRCode ?? "";
+        const qrText = await qrRes.text();
+        let qrData: any = {};
+        try { qrData = JSON.parse(qrText); } catch { /* keep empty */ }
+
+        // Fzap padrão: data.QRCode (uppercase Q,R,C). Fallbacks defensivos:
+        let code = 
+          qrData?.data?.QRCode ?? 
+          qrData?.data?.qrcode ?? 
+          qrData?.data?.qr ?? 
+          qrData?.data?.base64 ??
+          qrData?.QRCode ?? 
+          qrData?.qrcode ?? 
+          "";
+
+        console.log(`[Master] Tentativa ${i+1}: ${code ? `QR len=${code.length}` : "vazio"} | resp=${qrText.substring(0, 120)}`);
+
         if (code && code.length > 50) {
           if (!code.startsWith('data:image')) {
             code = `data:image/png;base64,${code}`;
@@ -102,6 +117,9 @@ Deno.serve(async (req: Request) => {
           qrCode = code;
           break; 
         }
+      } else {
+        const errText = await qrRes.text();
+        console.warn(`[Master] Tentativa ${i+1} HTTP ${qrRes.status}: ${errText.substring(0, 150)}`);
       }
     }
 

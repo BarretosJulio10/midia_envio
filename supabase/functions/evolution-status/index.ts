@@ -63,7 +63,8 @@ Deno.serve(async (req: Request) => {
     let qrCode = config.qr_code;
 
     // 2. SE NÃO ESTIVER LOGADO, BUSCAR QR CODE ATUALIZADO
-    // Conforme Spec: Poll GET /session/qr se não estiver logado
+    // Conforme Spec: Poll GET /session/qr se não estiver logado.
+    // Se conectado mas QR não emitido ainda, dispara reconnect para forçar emissão.
     if (!isLoggedIn) {
       const qrRes = await fetch(`${fzapUrl}/session/qr`, {
         method: 'GET',
@@ -72,16 +73,34 @@ Deno.serve(async (req: Request) => {
         }
       });
 
-      if (qrRes.ok) {
-        const qrData = await qrRes.json();
-        let code = qrData.data?.QRCode ?? "";
-        // Só atualizamos se o QR for válido (não vazio)
-        if (code && code.length > 50) {
-          if (!code.startsWith('data:image')) {
-            code = `data:image/png;base64,${code}`;
-          }
-          qrCode = code;
+      const qrText = await qrRes.text().catch(() => "");
+      let qrData: any = {};
+      try { qrData = JSON.parse(qrText); } catch { /* ignore */ }
+
+      // Aceita múltiplos formatos defensivamente (Fzap padrão é data.QRCode)
+      let code = 
+        qrData?.data?.QRCode ?? 
+        qrData?.data?.qrcode ?? 
+        qrData?.data?.qr ?? 
+        qrData?.data?.base64 ?? 
+        qrData?.QRCode ?? 
+        "";
+
+      console.log(`[Master Status] /session/qr ${qrRes.status} | code len=${code?.length || 0}`);
+
+      if (code && code.length > 50) {
+        if (!code.startsWith('data:image')) {
+          code = `data:image/png;base64,${code}`;
         }
+        qrCode = code;
+      } else if (!isConnected) {
+        // Sessão caiu — tentar reconectar para forçar emissão do QR
+        console.log('[Master Status] Sessão desconectada, disparando /session/connect');
+        await fetch(`${fzapUrl}/session/connect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+          body: JSON.stringify({ immediate: true }),
+        }).catch(err => console.warn('[Master Status] reconnect err:', err));
       }
     }
 
