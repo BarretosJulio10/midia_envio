@@ -144,9 +144,9 @@ Deno.serve(async (req) => {
             {
               title: 'Opções',
               rows: choices.map((c: any, idx: number) => ({
-                rowId: c.rowId || c.id || `row-${idx}`,
-                title: c.title || c.description || '',
-                desc:  c.description || c.desc || '',
+                rowId: String(c.rowId || c.id || `row-${idx}`),
+                title: String(c.title || c.description || ''),
+                description: String(c.description || c.desc || ''),
               })),
             },
           ],
