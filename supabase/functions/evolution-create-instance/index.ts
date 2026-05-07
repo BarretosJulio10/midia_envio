@@ -60,44 +60,47 @@ Deno.serve(async (req: Request) => {
     const instanceToken = createData.data?.token ?? generatedToken;
 
     // 2. INICIAR SESSÃO (CONNECT)
+    // Conforme Spec: POST /session/connect com header token: <session_token>
     console.log(`[Master] Iniciando sessão para: ${instance_name}`);
     const connectRes = await fetch(`${fzapUrl}/session/connect`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': adminToken,
         'token': instanceToken
       },
-      body: JSON.stringify({ immediate: false, providerType: "whatsmeow" }),
+      body: JSON.stringify({ immediate: true }), // immediate: true para não travar o worker enquanto aguarda conexao
     });
 
     const connectData = await connectRes.json();
     console.log(`[Master] Resposta Connect:`, JSON.stringify(connectData));
 
     // 3. POLLING INTERNO PARA CAPTURAR PRIMEIRO QR CODE
+    // Conforme Spec: Poll GET /session/qr até data.QRCode ser não-vazio
     let qrCode = "";
-    console.log(`[Master] Buscando primeiro QR Code...`);
+    console.log(`[Master] Buscando primeiro QR Code (polling estendido)...`);
     
-    for (let i = 0; i < 5; i++) {
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Espera 2s entre tentativas
+    // Aumentado para 15 tentativas (30 segundos total) pois o QR pode demorar para ser gerado pela Fzap
+    for (let i = 0; i < 15; i++) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); 
       
       const qrRes = await fetch(`${fzapUrl}/session/qr`, {
         method: 'GET',
         headers: {
-          'apikey': adminToken,
           'token': instanceToken
         },
       });
 
       if (qrRes.ok) {
         const qrData = await qrRes.json();
-        console.log(`[Master] Tentativa ${i+1} de buscar QR:`, qrData.success ? "Sucesso" : "Vazio");
+        console.log(`[Master] Tentativa ${i+1} de buscar QR:`, qrData.data?.QRCode ? "Encontrado" : "Vazio");
         
         let code = qrData.data?.QRCode ?? "";
         if (code && code.length > 50) {
-          if (!code.startsWith('data:')) code = `data:image/png;base64,${code}`;
+          if (!code.startsWith('data:image')) {
+            code = `data:image/png;base64,${code}`;
+          }
           qrCode = code;
-          break; // QR capturado com sucesso!
+          break; 
         }
       }
     }
