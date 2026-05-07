@@ -117,9 +117,9 @@ Deno.serve(async (req: Request) => {
     let qrCode = "";
     console.log(`[Master] Buscando primeiro QR Code (polling estendido)...`);
     
-    // 20 tentativas × 2s = 40s de polling. Fzap geralmente emite em 3-15s.
-    for (let i = 0; i < 20; i++) {
-      await new Promise(resolve => setTimeout(resolve, 2000)); 
+    // 25 tentativas × 1.5s = ~37s de polling. Fzap emite QR em 3-15s.
+    for (let i = 0; i < 25; i++) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
       
       const qrRes = await fetch(`${fzapUrl}/session/qr`, {
         method: 'GET',
@@ -155,6 +155,15 @@ Deno.serve(async (req: Request) => {
       } else {
         const errText = await qrRes.text();
         console.warn(`[Master] Tentativa ${i+1} HTTP ${qrRes.status}: ${errText.substring(0, 150)}`);
+        // Erros 500 "no session"/"not connected" → reconnect e segue
+        if (qrRes.status === 500 && /no session|not connected/i.test(errText)) {
+          console.log('[Master] Sessão não pronta — disparando novo /session/connect');
+          await fetch(`${fzapUrl}/session/connect`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+            body: JSON.stringify({ immediate: true }),
+          }).catch(() => {});
+        }
       }
     }
 
