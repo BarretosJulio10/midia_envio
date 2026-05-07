@@ -2,15 +2,12 @@
  * Edge Function: evolution-reset-instance (Fzap v1.23.0)
  *
  * Responsabilidades:
- * 1. Desconectar a instância na Fzap via POST /session/disconnect
- * 2. Fallback: POST /session/reset (se disconnect falhar)
+ * 1. Forçar LOGOUT da instância na Fzap via POST /session/logout
+ *    (logout limpa o device persistido e GARANTE que o próximo /session/connect
+ *     emita um novo QR Code — disconnect SOZINHO mantém a sessão e reusa login antigo)
+ * 2. Fallback: POST /session/reset (se logout falhar)
  * 3. Limpar o estado no banco (qr_code, instance_created, connection_status, token)
  * 4. Retornar sucesso para o frontend reiniciar o fluxo do zero
- *
- * Diferenças Fzap vs Uazapi:
- *   - Disconnect: /session/disconnect (era /instance/disconnect)
- *   - Reset fallback: /session/reset (era /instance/reset)
- *   - Headers: token: <instance_token>  (mesmo da Uazapi ✅)
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -61,10 +58,10 @@ Deno.serve(async (req: Request) => {
     // ── Tentar desconectar na Fzap (melhor esforço) ────────────────────────
     if (fzapUrl && instanceToken) {
       try {
-        console.log(`[reset-instance] Desconectando instância: ${config.instance_id}`);
+        console.log(`[reset-instance] LOGOUT da instância: ${config.instance_id}`);
 
-        // POST /session/disconnect  (era POST /instance/disconnect)
-        const disconnectRes = await fetch(`${fzapUrl}/session/disconnect`, {
+        // POST /session/logout — força novo QR no próximo connect (whatsmeow)
+        const logoutRes = await fetch(`${fzapUrl}/session/logout`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -72,14 +69,12 @@ Deno.serve(async (req: Request) => {
           },
         });
 
-        const disconnectBody = await disconnectRes.text();
-        console.log(`[reset-instance] Disconnect: ${disconnectRes.status} ${disconnectBody.substring(0, 150)}`);
+        const logoutBody = await logoutRes.text();
+        console.log(`[reset-instance] Logout: ${logoutRes.status} ${logoutBody.substring(0, 150)}`);
 
-        // Se disconnect falhou, tentar /session/reset como fallback
-        if (!disconnectRes.ok) {
-          console.warn('[reset-instance] Disconnect falhou. Tentando /session/reset...');
-
-          // POST /session/reset  (era POST /instance/reset)
+        // Fallback: /session/reset (force-reset, limpa estado persistido)
+        if (!logoutRes.ok) {
+          console.warn('[reset-instance] Logout falhou. Tentando /session/reset...');
           const resetRes = await fetch(`${fzapUrl}/session/reset`, {
             method: 'POST',
             headers: {
@@ -89,11 +84,9 @@ Deno.serve(async (req: Request) => {
           });
           const resetBody = await resetRes.text();
           console.log(`[reset-instance] Reset: ${resetRes.status} ${resetBody.substring(0, 150)}`);
-          // Mesmo que falhe, continuamos para limpar o banco
         }
 
       } catch (apiErr: any) {
-        // Erro de rede — logar mas continuar limpando o banco
         console.error('[reset-instance] Erro ao chamar Fzap (ignorado):', apiErr.message);
       }
     }
