@@ -39,42 +39,77 @@ Deno.serve(async (req: Request) => {
       throw new Error('EVOLUTION_API_URL ou global_apikay não configurados');
     }
 
-    // 1. CRIAR INSTÂNCIA (ADMIN)
+    // 1. CRIAR INSTÂNCIA (ADMIN) — reaproveita user existente se já houver
+    let instanceToken = "";
     const generatedToken = Math.random().toString(36).substring(2, 14).toUpperCase();
-    console.log(`[Master] Criando usuário: ${instance_name} com token: ${generatedToken}`);
 
-    const createRes = await fetch(`${fzapUrl}/admin/users`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json', 
-        'Authorization': adminToken 
-      },
-      body: JSON.stringify({ name: instance_name, token: generatedToken }),
+    // Verifica se o user já existe pelo nome
+    const listRes = await fetch(`${fzapUrl}/admin/users`, {
+      method: 'GET',
+      headers: { 'Authorization': adminToken },
     });
+    if (listRes.ok) {
+      const listData = await listRes.json().catch(() => ({}));
+      const existing = Array.isArray(listData?.data)
+        ? listData.data.find((u: any) => u?.name === instance_name)
+        : null;
+      if (existing?.token) {
+        instanceToken = existing.token;
+        console.log(`[Master] Reaproveitando user existente: ${instance_name} (token len=${instanceToken.length})`);
+      }
+    }
 
-    const createData = await createRes.json();
-    console.log(`[Master] Resposta Create:`, JSON.stringify(createData));
+    if (!instanceToken) {
+      console.log(`[Master] Criando usuário: ${instance_name} com token: ${generatedToken}`);
+      const createRes = await fetch(`${fzapUrl}/admin/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': adminToken },
+        body: JSON.stringify({ name: instance_name, token: generatedToken }),
+      });
+      const createData = await createRes.json();
+      console.log(`[Master] Resposta Create:`, JSON.stringify(createData));
+      if (!createRes.ok) throw new Error(`Falha ao criar usuário na Fzap: ${JSON.stringify(createData)}`);
+      instanceToken = createData.data?.token ?? generatedToken;
+    }
 
-    if (!createRes.ok) throw new Error(`Falha ao criar usuário na Fzap: ${JSON.stringify(createData)}`);
+    // 2. CHECAR STATUS — se já logado, força LOGOUT para gerar novo QR
+    const preStatusRes = await fetch(`${fzapUrl}/session/status`, {
+      method: 'GET', headers: { 'token': instanceToken }
+    });
+    if (preStatusRes.ok) {
+      const pre = await preStatusRes.json().catch(() => ({}));
+      console.log(`[Master] Pre-status:`, JSON.stringify(pre?.data || pre));
+      if (pre?.data?.loggedIn === true) {
+        console.log('[Master] Instância já logada — forçando LOGOUT para gerar novo QR');
+        await fetch(`${fzapUrl}/session/logout`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+        }).catch(() => {});
+      }
+    }
 
-    const instanceToken = createData.data?.token ?? generatedToken;
-
-    // 2. INICIAR SESSÃO (CONNECT)
-    // Conforme Spec Fzap v1.23.0: POST /session/connect com header token: <session_token>
-    // immediate:false faz o servidor Fzap aguardar até 10s pela conexão WhatsApp,
-    // dando tempo para o QR ser gerado antes mesmo do nosso polling começar.
+    // 3. INICIAR SESSÃO (CONNECT) — immediate:true retorna rápido; QR é assíncrono
     console.log(`[Master] Iniciando sessão para: ${instance_name}`);
     const connectRes = await fetch(`${fzapUrl}/session/connect`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'token': instanceToken
-      },
-      body: JSON.stringify({ immediate: false }),
+      headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+      body: JSON.stringify({ immediate: true }),
     });
+    const connectData = await connectRes.json().catch(() => ({}));
+    console.log(`[Master] Resposta Connect (${connectRes.status}):`, JSON.stringify(connectData));
 
-    const connectData = await connectRes.json();
-    console.log(`[Master] Resposta Connect:`, JSON.stringify(connectData));
+    // Se já logado pelo connect (sessão antiga reusada), força logout + novo connect
+    if (connectData?.data?.loggedIn === true) {
+      console.log('[Master] Connect retornou loggedIn — logout + reconnect');
+      await fetch(`${fzapUrl}/session/logout`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+      }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1500));
+      await fetch(`${fzapUrl}/session/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+        body: JSON.stringify({ immediate: true }),
+      }).catch(() => {});
+    }
 
     // 3. POLLING INTERNO PARA CAPTURAR PRIMEIRO QR CODE
     // Conforme Spec: Poll GET /session/qr até data.QRCode ser não-vazio.
