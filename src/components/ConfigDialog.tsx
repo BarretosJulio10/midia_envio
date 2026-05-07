@@ -55,7 +55,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
     if (step !== "qrcode" || !open) return;
 
     let errorCountLocal = 0;
-    const maxErrors = 5;
+    const maxErrors = 10; // Aumentado para tolerar instabilidades na Fzap
 
     const interval = setInterval(async () => {
       try {
@@ -80,7 +80,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
         setPollingFailed(false);
 
         // QR code atualizado pode vir no status — atualizar na tela
-        if (data.qrCode && data.qrCode !== qrCode) {
+        if (data.qrCode && data.qrCode.length > 50 && data.qrCode !== qrCode) {
           setQrCode(data.qrCode);
         }
 
@@ -162,7 +162,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
   };
 
   /**
-   * Limpa o estado da instância na Uazapi e no banco,
+   * Limpa o estado da instância na Fzap e no banco,
    * retornando ao formulário para gerar um novo QR.
    */
   const handleReset = async () => {
@@ -252,7 +252,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
       <DialogContent className="sm:max-w-[500px] bg-card border-border/50">
         <DialogHeader>
           <DialogTitle>
-            {step === "form" && "Configuração Uazapi"}
+            {step === "form" && "Configuração Fzap"}
             {step === "qrcode" && "Escaneie o QR Code"}
             {step === "connected" && "Conectado!"}
           </DialogTitle>

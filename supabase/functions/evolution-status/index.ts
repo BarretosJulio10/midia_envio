@@ -46,10 +46,10 @@ Deno.serve(async (req: Request) => {
     }
 
     // 1. CHECAR STATUS DA SESSÃO
+    // Conforme Spec: GET /session/status com header token: <session_token>
     const statusRes = await fetch(`${fzapUrl}/session/status`, {
       method: 'GET',
       headers: {
-        'apikey': adminToken,
         'token': instanceToken
       }
     });
@@ -63,11 +63,11 @@ Deno.serve(async (req: Request) => {
     let qrCode = config.qr_code;
 
     // 2. SE NÃO ESTIVER LOGADO, BUSCAR QR CODE ATUALIZADO
+    // Conforme Spec: Poll GET /session/qr se não estiver logado
     if (!isLoggedIn) {
       const qrRes = await fetch(`${fzapUrl}/session/qr`, {
         method: 'GET',
         headers: {
-          'apikey': adminToken,
           'token': instanceToken
         }
       });
@@ -75,8 +75,11 @@ Deno.serve(async (req: Request) => {
       if (qrRes.ok) {
         const qrData = await qrRes.json();
         let code = qrData.data?.QRCode ?? "";
+        // Só atualizamos se o QR for válido (não vazio)
         if (code && code.length > 50) {
-          if (!code.startsWith('data:')) code = `data:image/png;base64,${code}`;
+          if (!code.startsWith('data:image')) {
+            code = `data:image/png;base64,${code}`;
+          }
           qrCode = code;
         }
       }

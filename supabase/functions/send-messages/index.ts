@@ -230,7 +230,18 @@ Deno.serve(async (req) => {
             throw new Error(`Fzap API ${response.status}: ${errorBody}`);
           }
 
-          const result = await response.json();
+          const responseText = await response.text();
+          let result: any;
+          try { 
+            result = JSON.parse(responseText); 
+          } catch { 
+            result = { data: { id: null } }; 
+          }
+
+          if (!response.ok) {
+            throw new Error(`Fzap API ${response.status}: ${responseText}`);
+          }
+
           await supabase.from('messages').update({
             status: 'sent',
             sent_at: new Date().toISOString(),
@@ -238,7 +249,7 @@ Deno.serve(async (req) => {
             error_message: null,
           }).eq('id', message.id);
 
-          console.log(`✅ Msg enviada p/ ${message.phone}`);
+          console.log(`✅ Msg Fzap enviada p/ ${message.phone}`);
           sentCount++;
 
         } catch (err: any) {
