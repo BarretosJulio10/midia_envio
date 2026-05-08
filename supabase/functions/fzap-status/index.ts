@@ -1,5 +1,5 @@
 /**
- * Edge Function: evolution-status
+ * Edge Function: fzap-status
  * Spec Fzap v1.23.0:
  *   GET /session/status → data.loggedIn / data.connected
  *   GET /session/qr     → data.QRCode (string completa "data:image/png;base64,...")
@@ -36,13 +36,13 @@ Deno.serve(async (req: Request) => {
     if (userError || !user) throw new Error('Não autorizado');
 
     const { data: config } = await supabase
-      .from('evolution_config')
+      .from('fzap_config')
       .select('*')
       .eq('user_id', user.id)
       .single();
     if (!config) throw new Error('Configuração não encontrada');
 
-    const fzapUrl = (Deno.env.get('EVOLUTION_API_URL') ?? config.base_url ?? '').replace(/\/$/, '');
+    const fzapUrl = (Deno.env.get('FZAP_API_URL') ?? config.base_url ?? '').replace(/\/$/, '');
     const instanceToken = config.token;
     if (!fzapUrl || !instanceToken) {
       throw new Error('Configurações de API incompletas (URL/Token)');
@@ -91,7 +91,7 @@ Deno.serve(async (req: Request) => {
 
     const connection_status = isLoggedIn ? 'connected' : (isConnected ? 'connecting' : 'disconnected');
 
-    await supabase.from('evolution_config').update({
+    await supabase.from('fzap_config').update({
       connection_status,
       qr_code: isLoggedIn ? null : qrCode,
       updated_at: new Date().toISOString(),

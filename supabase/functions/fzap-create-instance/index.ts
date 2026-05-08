@@ -1,5 +1,5 @@
 /**
- * Edge Function: evolution-create-instance
+ * Edge Function: fzap-create-instance
  * Spec Fzap v1.23.0 — fluxo oficial:
  *  1. GET  /admin/users           → Authorization: <ADMIN_TOKEN>   (lookup por nome; retorna id+token)
  *  2. POST /admin/users           → cria se não existir            (resposta inclui id e token COMPLETO)
@@ -39,10 +39,10 @@ Deno.serve(async (req: Request) => {
     const { instance_name } = await req.json();
     if (!instance_name) throw new Error('Nome da instância é obrigatório');
 
-    const fzapUrl = (Deno.env.get('EVOLUTION_API_URL') ?? '').replace(/\/$/, '');
-    const adminToken = Deno.env.get('global_apikay');
+    const fzapUrl = (Deno.env.get('FZAP_API_URL') ?? '').replace(/\/$/, '');
+    const adminToken = Deno.env.get('FZAP_ADMIN_TOKEN');
     if (!fzapUrl || !adminToken) {
-      throw new Error('EVOLUTION_API_URL ou global_apikay não configurados');
+      throw new Error('FZAP_API_URL ou FZAP_ADMIN_TOKEN não configurados');
     }
     log(`Início: instance_name=${instance_name} fzapUrl=${fzapUrl} adminToken_len=${adminToken.length}`);
 
@@ -143,7 +143,7 @@ Deno.serve(async (req: Request) => {
     // 4. PRIMEIRA TENTATIVA RÁPIDA do /session/qr (até ~6s).
     // Spec (linhas 3711-3712): QR é assíncrono e pode vir vazio nas 1ª chamadas.
     // Não bloqueamos a request até 50s — quem faz o polling longo é o FRONTEND
-    // chamando evolution-status a cada 3s. Aqui só tentamos pegar adiantado
+    // chamando fzap-status a cada 3s. Aqui só tentamos pegar adiantado
     // pra entregar o QR já no abrir do modal quando possível.
     let qrCode = "";
     for (let i = 0; i < 3; i++) {
@@ -162,12 +162,12 @@ Deno.serve(async (req: Request) => {
         break;
       }
     }
-    if (!qrCode) log(`QR ainda não emitido — frontend continuará polling em /session/qr via evolution-status`);
+    if (!qrCode) log(`QR ainda não emitido — frontend continuará polling em /session/qr via fzap-status`);
 
     // ============================================================
     // 5. SALVAR NO BANCO
     // ============================================================
-    await supabase.from('evolution_config').upsert({
+    await supabase.from('fzap_config').upsert({
       user_id: user.id,
       instance_id: instance_name,
       token: instanceToken,

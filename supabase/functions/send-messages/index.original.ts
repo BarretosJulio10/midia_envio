@@ -34,23 +34,23 @@ serve(async (req) => {
     const { action } = await req.json();
     console.log(`Action received: ${action} for user: ${user.id}`);
 
-    // Get Evolution API credentials from secrets
-    const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
-    const evolutionApiKey = Deno.env.get('global_apikay');
+    // Get Fzap API credentials from secrets
+    const fzapApiUrl = Deno.env.get('FZAP_API_URL');
+    const fzapApiKey = Deno.env.get('FZAP_ADMIN_TOKEN');
 
-    if (!evolutionApiUrl || !evolutionApiKey) {
-      throw new Error('Credenciais da Evolution API não configuradas');
+    if (!fzapApiUrl || !fzapApiKey) {
+      throw new Error('Credenciais da Fzap API não configuradas');
     }
 
     // Get user config (delays, instance_id, etc)
     const { data: config, error: configError } = await supabase
-      .from('evolution_config')
+      .from('fzap_config')
       .select('*')
       .eq('user_id', user.id)
       .single();
 
     if (configError || !config || !config.instance_id) {
-      throw new Error('Configuração da Evolution API não encontrada');
+      throw new Error('Configuração da Fzap API não encontrada');
     }
 
     if (action === 'pause') {
@@ -168,7 +168,7 @@ serve(async (req) => {
                 else if (['mp3', 'm4a', 'wav', 'ogg', 'aac', 'flac', 'wma', 'opus'].includes(ext)) mediaType = 'audio';
                 else if (['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'zip', 'rar', '7z', 'csv'].includes(ext)) mediaType = 'document';
 
-                let endpoint = `${evolutionApiUrl}/send/media`;
+                let endpoint = `${fzapApiUrl}/send/media`;
                 let payload: any = {
                   number: message.phone,
                   type: mediaType,
@@ -186,17 +186,17 @@ serve(async (req) => {
                   method: 'POST',
                   headers: { 
                     'Content-Type': 'application/json', 
-                    'token': config.token || evolutionApiKey 
+                    'token': config.token || fzapApiKey 
                   },
                   body: JSON.stringify(payload),
                 });
                 
                 if (!response.ok) {
                   const errorBody = await response.text();
-                  throw new Error(`Uazapi API ${response.status}: ${errorBody}`);
+                  throw new Error(`Fzap API ${response.status}: ${errorBody}`);
                 }
                 const result = await response.json();
-                await supabase.from('messages').update({ status: 'sent', sent_at: new Date().toISOString(), evolution_msg_id: result.key?.id || null, error_message: null }).eq('id', message.id);
+                await supabase.from('messages').update({ status: 'sent', sent_at: new Date().toISOString(), fzap_msg_id: result.key?.id || null, error_message: null }).eq('id', message.id);
                 console.log(`Msg enviada p/ ${message.phone}`);
               } catch (err: any) {
                 console.error(`Falha msg ${message.id}:`, err);

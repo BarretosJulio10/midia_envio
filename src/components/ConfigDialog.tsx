@@ -61,7 +61,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
 
     const interval = setInterval(async () => {
       try {
-        const { data, error } = await supabase.functions.invoke('evolution-status');
+        const { data, error } = await supabase.functions.invoke('fzap-status');
 
         if (Array.isArray(data?.logs) && data.logs.length) {
           setServerLogs((prev) => {
@@ -120,7 +120,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
 
   const loadConfig = async () => {
     const { data } = await supabase
-      .from('evolution_config')
+      .from('fzap_config')
       .select('*')
       .single();
 
@@ -149,7 +149,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
     setPollingErrors(0);
 
     try {
-      const { data, error } = await supabase.functions.invoke('evolution-create-instance', {
+      const { data, error } = await supabase.functions.invoke('fzap-create-instance', {
         body: { instance_name: instanceName },
       });
 
@@ -196,7 +196,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
   const handleReset = async () => {
     setResetting(true);
     try {
-      const { data, error } = await supabase.functions.invoke('evolution-reset-instance');
+      const { data, error } = await supabase.functions.invoke('fzap-reset-instance');
 
       if (error) throw error;
 
@@ -221,14 +221,14 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
   };
 
   /**
-   * Busca manualmente o QR Code chamando evolution-status.
+   * Busca manualmente o QR Code chamando fzap-status.
    * Útil quando o polling automático ainda não pegou o QR.
    * Spec Fzap: GET /session/qr → data.QRCode (data:image/png;base64,...)
    */
   const handleFetchQrManually = async () => {
     setFetchingQr(true);
     try {
-      const { data, error } = await supabase.functions.invoke('evolution-status');
+      const { data, error } = await supabase.functions.invoke('fzap-status');
       console.log('[Manual QR fetch]', { data, error });
       if (error) throw error;
       if (data?.qrCode && data.qrCode.length > 50) {
@@ -263,7 +263,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
       if (!user) throw new Error("Usuário não autenticado");
 
       const { error } = await supabase
-        .from('evolution_config')
+        .from('fzap_config')
         .upsert({
           user_id: user.id,
           instance_id: instanceName.trim(),

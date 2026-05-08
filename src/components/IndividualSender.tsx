@@ -56,7 +56,7 @@ export default function IndividualSender() {
     const startSending = async () => {
         // Check config existence
         const { data: configData } = await supabase
-            .from('evolution_config')
+            .from('fzap_config')
             .select('*')
             .single();
 

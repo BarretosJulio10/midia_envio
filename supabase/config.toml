@@ -9,14 +9,17 @@ verify_jwt = true
 [functions.cleanup-files]
 verify_jwt = false
 
-[functions.evolution-create-instance]
+[functions.fzap-create-instance]
 verify_jwt = true
 
-[functions.evolution-status]
+[functions.fzap-status]
 verify_jwt = true
 
 [functions.fetch-groups]
 verify_jwt = true
 
 [functions.send-group-messages]
+verify_jwt = true
+
+[functions.fzap-reset-instance]
 verify_jwt = true

@@ -1,7 +1,7 @@
 /**
  * Edge Function: send-group-messages (Fzap v1.23.0)
  *
- * Diferenças Fzap vs Uazapi:
+ * Diferenças Fzap vs Fzap:
  *   - Texto: POST /chat/send/text, campo body (era /send/text, campo text)
  *   - Mídia: endpoints separados /chat/send/{image|video|audio|document|sticker}
  *   - Lista: POST /chat/send/list, sections/rows (era /send/menu, choices)
@@ -35,15 +35,15 @@ Deno.serve(async (req) => {
     if (userError || !user) throw new Error('Nao autorizado');
 
     const { data: config, error: configError } = await supabaseClient
-      .from('evolution_config')
+      .from('fzap_config')
       .select('*')
       .eq('user_id', user.id)
       .single();
 
     if (configError || !config) throw new Error('Configuracao nao encontrada');
 
-    const fzapUrl = Deno.env.get('EVOLUTION_API_URL');
-    if (!fzapUrl) throw new Error('EVOLUTION_API_URL nao definida');
+    const fzapUrl = Deno.env.get('FZAP_API_URL');
+    if (!fzapUrl) throw new Error('FZAP_API_URL nao definida');
 
     if (!config.token) {
       throw new Error('Token da instância não encontrado no banco. Reconecte sua instância Fzap no painel.');
@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
 
       if (message.message_type === 'menu') {
         // ── Lista interativa (Fzap: /chat/send/list com sections/rows) ───────
-        // Uazapi usava: /send/menu, choices: [{title, description, rowId}]
+        // Fzap usava: /send/menu, choices: [{title, description, rowId}]
         // Fzap usa:     /chat/send/list, sections: [{ title, rows: [{rowId, title, desc}] }]
         endpoint = `${fzapUrl}/chat/send/list`;
 
@@ -133,7 +133,7 @@ Deno.serve(async (req) => {
           choices = [];
         }
 
-        // Converter choices (Uazapi) → sections/rows (Fzap)
+        // Converter choices (Fzap) → sections/rows (Fzap)
         payload = {
           phone: message.group_id,           // era number
           text: message.caption || '',        // corpo da mensagem
@@ -177,7 +177,7 @@ Deno.serve(async (req) => {
         else if (['mp4', 'mov', 'webm', 'm4v', 'avi', '3gp', 'mkv', 'flv', 'wmv'].includes(ext)) mediaType = 'video';
         else if (['mp3', 'm4a', 'wav', 'ogg', 'aac', 'flac', 'opus'].includes(ext)) mediaType = 'audio';
 
-        // Fzap: endpoints separados por tipo (era /send/media único na Uazapi)
+        // Fzap: endpoints separados por tipo (era /send/media único na Fzap)
         if (mediaType === 'sticker') {
           endpoint = `${fzapUrl}/chat/send/sticker`;
           payload = { phone: message.group_id, sticker: signedUrl };

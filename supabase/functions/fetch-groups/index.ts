@@ -1,8 +1,8 @@
 /**
  * Edge Function: fetch-groups (Fzap v1.23.0)
  *
- * Endpoint Fzap: GET /group/list  (mesmo path da Uazapi ✅)
- * Header: token: <instance_token>  (mesmo da Uazapi ✅)
+ * Endpoint Fzap: GET /group/list  (mesmo path da Fzap ✅)
+ * Header: token: <instance_token>  (mesmo da Fzap ✅)
  * Mudança: parsing da resposta (data.[] ao invés de groups.[])
  */
 
@@ -33,21 +33,21 @@ Deno.serve(async (req) => {
     if (userError || !user) throw new Error('Não autorizado');
 
     const { data: config, error: configError } = await supabaseClient
-      .from('evolution_config')
+      .from('fzap_config')
       .select('*')
       .eq('user_id', user.id)
       .single();
 
     if (configError || !config) throw new Error('Configuração não encontrada');
 
-    const fzapUrl = Deno.env.get('EVOLUTION_API_URL');
-    if (!fzapUrl) throw new Error('EVOLUTION_API_URL não configurada');
+    const fzapUrl = Deno.env.get('FZAP_API_URL');
+    if (!fzapUrl) throw new Error('FZAP_API_URL não configurada');
 
     if (!config.token) throw new Error('Token da instância não encontrado. Reconecte sua instância.');
 
     console.log(`[fetch-groups] Buscando grupos de ${fzapUrl}/group/list`);
 
-    // GET /group/list — mesmo endpoint da Uazapi
+    // GET /group/list — mesmo endpoint da Fzap
     const response = await fetch(`${fzapUrl}/group/list`, {
       method: 'GET',
       headers: {

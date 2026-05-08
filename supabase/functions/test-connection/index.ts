@@ -30,7 +30,7 @@ Deno.serve(async (req: Request) => {
     if (userError || !user) throw new Error('Não autorizado');
 
     const { data: config, error: configError } = await supabase
-      .from('evolution_config')
+      .from('fzap_config')
       .select('instance_id, token, base_url')
       .eq('user_id', user.id)
       .single();
@@ -49,7 +49,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const fzapUrl = Deno.env.get('EVOLUTION_API_URL') ?? config.base_url;
+    const fzapUrl = Deno.env.get('FZAP_API_URL') ?? config.base_url;
     if (!fzapUrl) throw new Error('URL da Fzap não configurada nos Secrets');
 
     console.log(`[test-connection] Testando conexão: ${config.instance_id}`);

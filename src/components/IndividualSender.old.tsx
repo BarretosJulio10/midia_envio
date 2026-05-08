@@ -56,12 +56,12 @@ export default function IndividualSender() {
     const startSending = async () => {
         // Check config existence
         const { data: configData } = await supabase
-            .from('evolution_config')
+            .from('fzap_config')
             .select('*')
             .single();
 
         if (!configData) {
-            toast.error("Configure a API Evolution primeiro!");
+            toast.error("Configure a API Fzap primeiro!");
             return;
         }
 

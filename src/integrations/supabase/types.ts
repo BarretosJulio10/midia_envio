@@ -77,7 +77,7 @@ export type Database = {
         }
         Relationships: []
       }
-      evolution_config: {
+      fzap_config: {
         Row: {
           base_url: string
           connection_status: string | null
@@ -179,7 +179,7 @@ export type Database = {
           campaign_id: string | null
           created_at: string
           error_message: string | null
-          evolution_msg_id: string | null
+          fzap_msg_id: string | null
           file_url: string | null
           filename: string
           id: string
@@ -194,7 +194,7 @@ export type Database = {
           campaign_id?: string | null
           created_at?: string
           error_message?: string | null
-          evolution_msg_id?: string | null
+          fzap_msg_id?: string | null
           file_url?: string | null
           filename: string
           id?: string
@@ -209,7 +209,7 @@ export type Database = {
           campaign_id?: string | null
           created_at?: string
           error_message?: string | null
-          evolution_msg_id?: string | null
+          fzap_msg_id?: string | null
           file_url?: string | null
           filename?: string
           id?: string

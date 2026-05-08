@@ -3,9 +3,9 @@ const url = 'https://uvvaxwtumuabfklccjgd.supabase.co';
 const key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2dmF4d3R1bXVhYmZrbGNjamdkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDc4MjY5NSwiZXhwIjoyMDgwMzU4Njk1fQ.FR8p6ULuDaYsfCQIkaRn1ZIuY88N3zEMpS_MXif7IUg';
 
 async function query() {
-  console.log("Verificando colunas de evolution_config...");
+  console.log("Verificando colunas de fzap_config...");
   try {
-    const res = await fetch(`${url}/rest/v1/evolution_config?limit=1`, {
+    const res = await fetch(`${url}/rest/v1/fzap_config?limit=1`, {
       headers: { 'apikey': key, 'Authorization': `Bearer ${key}` }
     });
 

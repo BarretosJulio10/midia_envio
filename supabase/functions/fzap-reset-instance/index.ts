@@ -1,5 +1,5 @@
 /**
- * Edge Function: evolution-reset-instance (Fzap v1.23.0)
+ * Edge Function: fzap-reset-instance (Fzap v1.23.0)
  *
  * Responsabilidades:
  * 1. Forçar LOGOUT da instância na Fzap via POST /session/logout
@@ -38,7 +38,7 @@ Deno.serve(async (req: Request) => {
 
     // ── Buscar config do banco ─────────────────────────────────────────────
     const { data: config, error: configError } = await supabase
-      .from('evolution_config')
+      .from('fzap_config')
       .select('instance_id, token, base_url')
       .eq('user_id', user.id)
       .single();
@@ -52,7 +52,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const fzapUrl      = Deno.env.get('EVOLUTION_API_URL') ?? config.base_url;
+    const fzapUrl      = Deno.env.get('FZAP_API_URL') ?? config.base_url;
     const instanceToken = config.token;
 
     // ── Tentar desconectar na Fzap (melhor esforço) ────────────────────────
@@ -93,7 +93,7 @@ Deno.serve(async (req: Request) => {
 
     // ── Limpar estado no banco ─────────────────────────────────────────────
     const { error: dbError } = await supabase
-      .from('evolution_config')
+      .from('fzap_config')
       .update({
         instance_created: false,
         qr_code: null,

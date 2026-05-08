@@ -78,7 +78,7 @@ export default function GroupSender() {
     if (!user) return;
 
     const { data: config } = await supabase
-      .from('evolution_config')
+      .from('fzap_config')
       .select('pause_after, pause_duration')
       .eq('user_id', user.id)
       .single();
@@ -241,7 +241,7 @@ export default function GroupSender() {
 
       // Atualizar configuração
       const { error: configError } = await supabase
-        .from('evolution_config')
+        .from('fzap_config')
         .update({
           pause_after: messagesPerBatch,
           pause_duration: pauseDuration * 1000,
