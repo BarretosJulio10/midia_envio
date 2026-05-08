@@ -345,14 +345,14 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px] bg-card border-border/50">
-        <DialogHeader>
-          <DialogTitle>
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[520px] max-h-[90vh] overflow-y-auto bg-card border-border/50 rounded-xl">
+        <DialogHeader className="space-y-1">
+          <DialogTitle className="text-xl">
             {step === "form" && "Configuração Fzap"}
             {step === "qrcode" && "Escaneie o QR Code"}
             {step === "connected" && "Conectado!"}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-sm text-muted-foreground">
             {step === "form" && "Configure a instância e parâmetros de envio"}
             {step === "qrcode" && "Use seu WhatsApp para escanear o código"}
             {step === "connected" && "WhatsApp conectado com sucesso!"}
@@ -423,44 +423,54 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-4 border-t border-border/40">
               <Button
                 type="button"
                 variant="outline"
+                size="sm"
                 onClick={handleTestConnection}
                 disabled={loading}
+                className="w-full"
               >
-                <Wifi className="mr-2 h-4 w-4" />
-                Testar Conexão
+                <Wifi className="mr-1.5 h-4 w-4" />
+                Testar
               </Button>
               <Button
                 type="button"
                 variant="destructive"
+                size="sm"
                 onClick={handleDisconnect}
                 disabled={loading || resetting}
+                className="w-full"
               >
                 {resetting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                 ) : (
-                  <PowerOff className="mr-2 h-4 w-4" />
+                  <PowerOff className="mr-1.5 h-4 w-4" />
                 )}
                 Desconectar
               </Button>
               <Button
                 type="button"
+                size="sm"
+                variant="secondary"
                 onClick={handleCreateInstance}
                 disabled={loading || !instanceName}
+                className="w-full"
               >
                 {loading ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                     Criando...
                   </>
                 ) : (
-                  "Conectar WhatsApp"
+                  <>
+                    <QrCode className="mr-1.5 h-4 w-4" />
+                    Conectar
+                  </>
                 )}
               </Button>
-              <Button type="submit" disabled={loading}>
+              <Button type="submit" size="sm" disabled={loading} className="w-full">
                 {loading ? "Salvando..." : "Salvar"}
               </Button>
             </div>
@@ -523,7 +533,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
             )}
 
             {/* Botões de ação */}
-            <div className="flex gap-2 pt-2">
+            <div className="flex flex-col sm:flex-row gap-2 pt-2">
               <Button
                 type="button"
                 variant="outline"

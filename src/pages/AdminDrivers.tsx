@@ -61,15 +61,15 @@ export default function AdminDrivers() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border/50 bg-card/50 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <Button variant="outline" size="icon" onClick={() => history.back()}><ArrowLeft className="h-4 w-4" /></Button>
-            <h1 className="text-xl font-bold">Drivers de API</h1>
+            <h1 className="text-lg sm:text-xl font-bold truncate">Drivers de API</h1>
           </div>
-          <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4 mr-2" />Adicionar</Button>
+          <Button onClick={() => setCreating(true)} size="sm" className="sm:size-default"><Plus className="h-4 w-4 mr-2" />Adicionar</Button>
         </div>
       </header>
-      <main className="container mx-auto px-4 py-8 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {loading ? <Loader2 className="animate-spin" /> : drivers.map(d => (
           <Card key={d.id} className={d.is_active ? "border-primary" : ""}>
             <CardHeader className="flex-row items-start justify-between">
@@ -131,7 +131,7 @@ function DriverDialog({ open, driver, onClose, onSaved }: { open: boolean; drive
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader><DialogTitle>{driver ? 'Editar driver' : 'Novo driver'}</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div><Label>Slug</Label><Input value={form.slug} disabled={!!driver} onChange={(e) => setForm({ ...form, slug: e.target.value })} placeholder="evolution-go" /></div>
