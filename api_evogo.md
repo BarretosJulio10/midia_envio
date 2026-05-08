@@ -1,207 +1,92 @@
-# Content from https://docs.evolutionfoundation.com.br/evolution-go/connect-to-instance
+# Documentação Técnica Evolution Go
 
-[Pular para o conteúdo principal](https://docs.evolutionfoundation.com.br/evolution-go/connect-to-instance#content-area)
+**Base URL:** `https://evogo.pagoupix.com.br`
+**Auth Header:** `apikey: 006763caee95f33088ebc5ac90ce975ef1c62a2622271937450fe9254635a97f`
 
-[Documentação do Evolution Foundation home page![light logo](https://mintcdn.com/evoai-683d737d/cKWwJec4WH5zifr_/logo/light.svg?fit=max&auto=format&n=cKWwJec4WH5zifr_&q=85&s=64ed2f5f42f7300330599ed51d084814)![dark logo](https://mintcdn.com/evoai-683d737d/cKWwJec4WH5zifr_/logo/dark.svg?fit=max&auto=format&n=cKWwJec4WH5zifr_&q=85&s=a554ffb681dc5e131daba663dfecc536)](https://docs.evolutionfoundation.com.br/)
+---
 
-![BR](https://d3gk2c5xim1je2.cloudfront.net/flags/BR.svg)
+## 1. Instância (Instance)
 
-Português (BR)
-
-Pesquisar...
-
-Ctrl K
-
-Pesquisar...
-
-Navigation
-
-Instance
-
-Connect to instance
-
-[Início](https://docs.evolutionfoundation.com.br/) [Evolution](https://docs.evolutionfoundation.com.br/evolution-api) [Evo CRM](https://docs.evolutionfoundation.com.br/introduction) [EvoNexus](https://docs.evolutionfoundation.com.br/evo-nexus/introduction) [Referência API](https://docs.evolutionfoundation.com.br/api-reference/introduction)
-
-[Início](https://docs.evolutionfoundation.com.br/) [Evolution](https://docs.evolutionfoundation.com.br/evolution-api) [Evo CRM](https://docs.evolutionfoundation.com.br/introduction) [EvoNexus](https://docs.evolutionfoundation.com.br/evo-nexus/introduction) [Referência API](https://docs.evolutionfoundation.com.br/api-reference/introduction)
-
-POST
-
-http://localhost:8080/https://localhost:8080/{customUrl}
-
-/
-
-instance
-
-/
-
-connect
-
-Experimentar
-
-Connect to instance
-
-cURL
-
-```
-curl --request POST \
-  --url http://localhost:8080/instance/connect \
-  --header 'Content-Type: application/json' \
-  --header 'apikey: <api-key>' \
-  --data '
+### Conectar Instância (Gerar QR Code/Status)
+- **Endpoint:** `POST /instance/connect`
+- **Body:**
+```json
 {
   "immediate": true,
-  "phone": "<string>",
-  "subscribe": [\
-    "<string>"\
-  ],
-  "webhookUrl": "<string>"
+  "phone": "",
+  "subscribe": ["QRCODE", "CONNECTION", "MESSAGE"],
+  "webhookUrl": ""
 }
-'
 ```
 
-200
-
-400
-
-401
-
-403
-
-404
-
-500
-
-```
+### Status da Instância
+- **Endpoint:** `GET /instance/status`
+- **Headers:** `apikey: <token>`
+- **Resposta Sucesso (200):**
+```json
 {
   "data": {
-    "eventString": "MESSAGE,SEND_MESSAGE,READ_RECEIPT,PRESENCE,HISTORY_SYNC,CHAT_PRESENCE,CALL,CONNECTION,LABEL,CONTACT,GROUP,NEWSLETTER,QRCODE",
-    "jid": "",
-    "webhookUrl": "https://your-webhook-url.com/webhook"
-  },
-  "message": "success"
+    "connected": true,
+    "loggedIn": true,
+    "name": "nome_instancia"
+  }
 }
 ```
 
-> ## Documentation Index
->
-> Fetch the complete documentation index at: [https://docs.evolutionfoundation.com.br/llms.txt](https://docs.evolutionfoundation.com.br/llms.txt)
->
-> Use this file to discover all available pages before exploring further.
-
-#### Autorizações
-
-[​](https://docs.evolutionfoundation.com.br/evolution-go/connect-to-instance#authorization-apikey)
-
-apikey
-
-string
-
-header
-
-obrigatório
-
-API Key for authentication (global or instance-specific)
-
-#### Corpo
-
-application/json
-
-Instance data
-
-[​](https://docs.evolutionfoundation.com.br/evolution-go/connect-to-instance#body-immediate)
-
-immediate
-
-boolean
-
-[​](https://docs.evolutionfoundation.com.br/evolution-go/connect-to-instance#body-phone)
-
-phone
-
-string
-
-[​](https://docs.evolutionfoundation.com.br/evolution-go/connect-to-instance#body-subscribe)
-
-subscribe
-
-string\[\]
-
-[​](https://docs.evolutionfoundation.com.br/evolution-go/connect-to-instance#body-webhook-url)
-
-webhookUrl
-
-string
-
-#### Resposta
-
-200
-
-application/json
-
-Instance connected successfully
-
-[​](https://docs.evolutionfoundation.com.br/evolution-go/connect-to-instance#response-success)
-
-success
-
-boolean
-
-Exemplo:
-
-`true`
-
-[​](https://docs.evolutionfoundation.com.br/evolution-go/connect-to-instance#response-message)
-
-message
-
-string
-
-[Anterior](https://docs.evolutionfoundation.com.br/evolution-go/get-all-instances) [Create a new instanceCreates a new instance with the provided data\\
-\\
-Próximo](https://docs.evolutionfoundation.com.br/evolution-go/create-a-new-instance)
-
-Ctrl+I
-
-Connect to instance
-
-cURL
-
-```
-curl --request POST \
-  --url http://localhost:8080/instance/connect \
-  --header 'Content-Type: application/json' \
-  --header 'apikey: <api-key>' \
-  --data '
-{
-  "immediate": true,
-  "phone": "<string>",
-  "subscribe": [\
-    "<string>"\
-  ],
-  "webhookUrl": "<string>"
-}
-'
-```
-
-200
-
-400
-
-401
-
-403
-
-404
-
-500
-
-```
+### Obter QR Code (Base64)
+- **Endpoint:** `GET /instance/qr`
+- **Headers:** `apikey: <token>`
+- **Resposta Sucesso (200):**
+```json
 {
   "data": {
-    "eventString": "MESSAGE,SEND_MESSAGE,READ_RECEIPT,PRESENCE,HISTORY_SYNC,CHAT_PRESENCE,CALL,CONNECTION,LABEL,CONTACT,GROUP,NEWSLETTER,QRCODE",
-    "jid": "",
-    "webhookUrl": "https://your-webhook-url.com/webhook"
-  },
-  "message": "success"
+    "qr": "base64_string..."
+  }
 }
 ```
+
+### Desconectar Instância (Logout)
+- **Endpoint:** `POST /instance/logout` (Alguns setups usam `/instance/disconnect`)
+- **Headers:** `apikey: <token>`
+
+---
+
+## 2. Mensagens (Messages)
+
+### Enviar Mensagem de Texto
+- **Endpoint:** `POST /send/text`
+- **Body:**
+```json
+{
+  "to": "5511999999999",
+  "text": "Olá mundo!",
+  "delay": 0
+}
+```
+
+### Enviar Mensagem de Mídia
+- **Endpoint:** `POST /send/media`
+- **Body:**
+```json
+{
+  "to": "5511999999999",
+  "mediaUrl": "https://link.com/foto.jpg",
+  "type": "image",
+  "caption": "Legenda da foto"
+}
+```
+
+---
+
+## 3. Webhooks
+
+### Configurar Webhook
+- **Endpoint:** `POST /instance/webhook`
+- **Body:**
+```json
+{
+  "url": "https://seu-webhook.com",
+  "events": ["MESSAGE", "CONNECTION", "QRCODE"]
+}
+```
+
