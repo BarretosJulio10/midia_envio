@@ -138,26 +138,28 @@ Deno.serve(async (req: Request) => {
     }
 
     // ============================================================
-    // 4. POLLING /session/qr → data.QRCode (spec oficial)
-    // QR é assíncrono. Polling generoso: 20 × 2s = 40s.
-    // ============================================================
+    // 4. PRIMEIRA TENTATIVA RÁPIDA do /session/qr (até ~6s).
+    // Spec (linhas 3711-3712): QR é assíncrono e pode vir vazio nas 1ª chamadas.
+    // Não bloqueamos a request até 50s — quem faz o polling longo é o FRONTEND
+    // chamando evolution-status a cada 3s. Aqui só tentamos pegar adiantado
+    // pra entregar o QR já no abrir do modal quando possível.
     let qrCode = "";
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < 3; i++) {
       await new Promise(r => setTimeout(r, 2000));
       const qrRes = await fetch(`${fzapUrl}/session/qr`, {
         headers: { 'token': instanceToken },
       });
       const qrText = await qrRes.text();
       let qrJson: any = {}; try { qrJson = JSON.parse(qrText); } catch {}
-      // Spec pode usar QRCode (maiúsculo) mas alguns builds usam qrcode/QR
       const code = qrJson?.data?.QRCode ?? qrJson?.data?.qrcode ?? qrJson?.data?.QR ?? qrJson?.data?.qr ?? "";
-      log(`QR ${i+1}/25 HTTP=${qrRes.status} len=${code.length} keys=${Object.keys(qrJson?.data ?? {}).join(',')} raw=${qrText.substring(0, 200)}`);
+      log(`QR fast ${i+1}/3 HTTP=${qrRes.status} len=${code.length} keys=${Object.keys(qrJson?.data ?? {}).join(',')}`);
       if (code && code.length > 50) {
         qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
-        log(`✓ QR obtido na tentativa ${i+1}`);
+        log(`✓ QR adiantado na tentativa ${i+1}`);
         break;
       }
     }
+    if (!qrCode) log(`QR ainda não emitido — frontend continuará polling em /session/qr via evolution-status`);
 
     // ============================================================
     // 5. SALVAR NO BANCO
