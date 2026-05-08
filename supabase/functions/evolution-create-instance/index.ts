@@ -111,54 +111,54 @@ Deno.serve(async (req: Request) => {
       }).catch(() => {});
     }
 
-    // 4. POLLING INTERNO PARA CAPTURAR PRIMEIRO QR CODE
-    // REALIDADE Fzap (probe direto): data.qrCode (camelCase).
-    // Polling curto (max ~9s) para não estourar timeout da edge function.
-    // Se vier vazio, o frontend continua via evolution-status.
+    // 4. POLLING DO QR CODE conforme spec oficial Fzap v1.23.0
+    // Spec: GET /session/qr → data.QRCode (uppercase Q,R,C) já vem como
+    // string completa "data:image/png;base64,..." pronta para <img src=...>.
+    // Polling: 15 tentativas × 2s = 30s. QR é assíncrono após /connect.
     let qrCode = "";
-    console.log(`[Master] Buscando primeiro QR Code (polling curto)...`);
-    
-    // 6 tentativas × 1.5s = ~9s. Frontend assume daí em diante.
-    for (let i = 0; i < 6; i++) {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
+    console.log(`[Master] Iniciando polling QR (token=${instanceToken.substring(0,4)}***, url=${fzapUrl}/session/qr)`);
+
+    for (let i = 0; i < 15; i++) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
       const qrRes = await fetch(`${fzapUrl}/session/qr`, {
         method: 'GET',
-        headers: {
-          'token': instanceToken
-        },
+        headers: { 'token': instanceToken },
       });
 
-      if (qrRes.ok) {
-        const qrText = await qrRes.text();
-        let qrData: any = {};
-        try { qrData = JSON.parse(qrText); } catch { /* keep empty */ }
+      const qrText = await qrRes.text().catch(() => "");
+      let qrData: any = {};
+      try { qrData = JSON.parse(qrText); } catch { /* ignore parse */ }
 
-        // Real Fzap: data.qrCode (camelCase). Mantém fallbacks.
-        let code = 
-          qrData?.data?.qrCode ?? 
-          qrData?.data?.QRCode ?? 
-          qrData?.data?.qrcode ?? 
-          qrData?.data?.qr ?? 
-          qrData?.data?.base64 ??
-          qrData?.qrCode ?? 
-          qrData?.QRCode ?? 
-          qrData?.qrcode ?? 
-          "";
+      // Spec oficial: data.QRCode. Fallbacks defensivos para variações.
+      let code =
+        qrData?.data?.QRCode ??
+        qrData?.data?.qrCode ??
+        qrData?.data?.qrcode ??
+        qrData?.data?.qr ??
+        qrData?.QRCode ??
+        qrData?.qrCode ??
+        "";
 
-        console.log(`[Master] QR tentativa ${i+1}: ${code ? `len=${code.length}` : "vazio"}`);
+      const sessionStatus = qrData?.data?.sessionStatus ?? qrData?.data?.status ?? "?";
+      console.log(`[Master] QR ${i+1}/15 HTTP=${qrRes.status} status=${sessionStatus} len=${code?.length || 0}`);
 
-        if (code && code.length > 50) {
-          if (!code.startsWith('data:image')) {
-            code = `data:image/png;base64,${code}`;
-          }
-          qrCode = code;
-          break; 
+      if (code && code.length > 50) {
+        if (!code.startsWith('data:image')) {
+          code = `data:image/png;base64,${code}`;
         }
-      } else {
-        const errText = await qrRes.text();
-        console.warn(`[Master] Tentativa ${i+1} HTTP ${qrRes.status}: ${errText.substring(0, 150)}`);
+        qrCode = code;
+        console.log(`[Master] QR Code obtido na tentativa ${i+1}`);
+        break;
       }
+
+      if (!qrRes.ok) {
+        console.warn(`[Master] QR HTTP ${qrRes.status}: ${qrText.substring(0, 200)}`);
+      }
+    }
+
+    if (!qrCode) {
+      console.error('[Master] QR Code não obtido após 15 tentativas (30s)');
     }
 
     // 4. SALVAR NO BANCO
