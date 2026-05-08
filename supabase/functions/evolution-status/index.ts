@@ -60,19 +60,23 @@ Deno.serve(async (req: Request) => {
       });
       const qrText = await qrRes.text();
       let qrJson: any = {}; try { qrJson = JSON.parse(qrText); } catch {}
-      const code = qrJson?.data?.QRCode ?? "";
-      console.log(`[Fzap Status] /session/qr ${qrRes.status} len=${code.length} raw=${qrText.substring(0, 200)}`);
+      const code = qrJson?.data?.QRCode ?? qrJson?.data?.qrcode ?? qrJson?.data?.QR ?? qrJson?.data?.qr ?? "";
+      console.log(`[Fzap Status] /session/qr ${qrRes.status} len=${code.length} connected=${isConnected} raw=${qrText.substring(0, 200)}`);
 
       if (code && code.length > 50) {
         qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
-      } else {
-        // Sem QR — reabrir socket conforme spec (QR expirado ou ainda não emitido).
-        console.log(`[Fzap Status] QR vazio — disparando /session/connect`);
+      } else if (!isConnected) {
+        // CRITICAL: só re-conectar se o websocket caiu.
+        // Chamar /session/connect enquanto connected=true RESETA a geração do QR
+        // a cada poll e o QR nunca chega a ser emitido (spec linha 3714).
+        console.log(`[Fzap Status] websocket caído — disparando /session/connect`);
         await fetch(`${fzapUrl}/session/connect`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'token': instanceToken },
           body: JSON.stringify({ immediate: true }),
         }).catch(err => console.warn('[Fzap Status] reconnect err:', err));
+      } else {
+        console.log(`[Fzap Status] connected=true, QR vazio — aguardando emissão (não re-conectar)`);
       }
     }
 
