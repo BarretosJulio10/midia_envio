@@ -4,6 +4,7 @@
  *   GET /session/status → data.loggedIn / data.connected
  *   GET /session/qr     → data.QRCode (string completa "data:image/png;base64,...")
  * Se loggedIn=false e QRCode vazio, dispara POST /session/connect para reabrir o socket.
+ * Redeploy tag: v2
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";

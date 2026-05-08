@@ -8,6 +8,7 @@
  * 2. Fallback: POST /session/reset (se logout falhar)
  * 3. Limpar o estado no banco (qr_code, instance_created, connection_status, token)
  * 4. Retornar sucesso para o frontend reiniciar o fluxo do zero
+ * Redeploy tag: v2
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";

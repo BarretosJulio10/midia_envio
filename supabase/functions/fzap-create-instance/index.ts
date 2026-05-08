@@ -5,6 +5,7 @@
  *  2. POST /admin/users           → cria se não existir            (resposta inclui id e token COMPLETO)
  *  3. POST /session/connect       → token: <USER_TOKEN>, body {immediate:true}
  *  4. GET  /session/qr (polling)  → token: <USER_TOKEN>, lê data.QRCode (já vem "data:image/png;base64,...")
+ *  Redeploy tag: v2
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
