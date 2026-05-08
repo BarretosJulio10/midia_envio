@@ -47,8 +47,10 @@ export class EvolutionGoDriver implements WhatsAppDriver {
       return { connected: false, loggedIn: false, qrCode: null, logs };
     }
     const sj = await sr.json();
-    const loggedIn = sj?.data?.loggedIn === true;
-    const connected = sj?.data?.connected === true;
+    // API oficial retorna PascalCase (data.LoggedIn / data.Connected); manter fallback
+    const d = sj?.data ?? {};
+    const loggedIn = d.LoggedIn === true || d.loggedIn === true;
+    const connected = d.Connected === true || d.connected === true;
     log(`status loggedIn=${loggedIn} connected=${connected}`);
 
     let qrCode: string | null = null;
@@ -57,7 +59,8 @@ export class EvolutionGoDriver implements WhatsAppDriver {
         headers: { 'apikey': token, 'Cache-Control': 'no-cache' },
       });
       const qj = await qr.json();
-      const code = qj?.data?.qr ?? qj?.data?.Qrcode ?? qj?.data?.QRCode ?? qj?.data?.base64 ?? '';
+      const qd = qj?.data ?? {};
+      const code = qd.Qrcode ?? qd.qrcode ?? qd.QRCode ?? qd.qr ?? qd.base64 ?? '';
       if (code) {
         qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
         log(`QR obtido`);
@@ -81,26 +84,35 @@ export class EvolutionGoDriver implements WhatsAppDriver {
       method: 'POST',
       headers: { 'apikey': token },
     }).catch(() => {});
+    await fetch(this.url('/instance/disconnect'), {
+      method: 'POST',
+      headers: { 'apikey': token },
+    }).catch(() => {});
   }
 
   async sendText({ token, to, text }: { token: string; to: string; text: string }) {
     const r = await fetch(this.url('/send/text'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': token },
-      body: JSON.stringify({ to, text, delay: 0 }),
+      body: JSON.stringify({ number: to, text, delay: 0 }),
     });
     if (!r.ok) throw new Error(`evogo sendText ${r.status}: ${await r.text()}`);
   }
 
   async sendMedia(p: SendMediaInput) {
-    const r = await fetch(this.url('/send/media'), {
+    const isSticker = p.type === 'sticker';
+    const endpoint = isSticker ? '/send/sticker' : '/send/media';
+    const body: Record<string, unknown> = {
+      number: p.to,
+      url: p.mediaUrl,
+      caption: p.caption ?? '',
+      delay: 0,
+    };
+    if (!isSticker) body.type = p.type; // image|video|audio|document
+    const r = await fetch(this.url(endpoint), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': p.token },
-      body: JSON.stringify({
-        to: p.to, mediaUrl: p.mediaUrl,
-        type: p.type === 'sticker' ? 'image' : p.type,
-        caption: p.caption ?? '',
-      }),
+      body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error(`evogo sendMedia ${r.status}: ${await r.text()}`);
   }
