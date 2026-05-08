@@ -50,7 +50,12 @@ Deno.serve(async (req: Request) => {
     const connectRes = await fetch(`${evogoUrl}/instance/connect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': instanceToken },
-      body: JSON.stringify({ immediate: true }),
+      body: JSON.stringify({
+        immediate: true,
+        phone: "",
+        subscribe: ["QRCODE", "CONNECTION", "MESSAGE"],
+        webhookUrl: "",
+      }),
     });
 
     const connectData = await connectRes.json();
