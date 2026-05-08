@@ -81,11 +81,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
 
         // QR code atualizado pode vir no status — atualizar na tela se for válido
         if (data.qrCode && data.qrCode.length > 50) {
-          setQrCode(current => {
-            // Só atualiza se for diferente para evitar re-renders desnecessários,
-            // mas garante que se o QR mudou (ex: expirou e gerou novo), ele apareça.
-            return current !== data.qrCode ? data.qrCode : current;
-          });
+          setQrCode(data.qrCode);
         }
 
         if (data.connected) {
