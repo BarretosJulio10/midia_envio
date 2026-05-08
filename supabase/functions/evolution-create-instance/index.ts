@@ -112,13 +112,14 @@ Deno.serve(async (req: Request) => {
     }
 
     // 4. POLLING INTERNO PARA CAPTURAR PRIMEIRO QR CODE
-    // Conforme spec oficial Fzap v1.23.0: data.QRCode (uppercase Q,R,C).
-    // Fallbacks defensivos para variações.
+    // REALIDADE Fzap (probe direto): data.qrCode (camelCase).
+    // Polling curto (max ~9s) para não estourar timeout da edge function.
+    // Se vier vazio, o frontend continua via evolution-status.
     let qrCode = "";
-    console.log(`[Master] Buscando primeiro QR Code (polling estendido)...`);
+    console.log(`[Master] Buscando primeiro QR Code (polling curto)...`);
     
-    // 40 tentativas × 1.5s = ~60s de polling.
-    for (let i = 0; i < 40; i++) {
+    // 6 tentativas × 1.5s = ~9s. Frontend assume daí em diante.
+    for (let i = 0; i < 6; i++) {
       await new Promise(resolve => setTimeout(resolve, 1500));
       
       const qrRes = await fetch(`${fzapUrl}/session/qr`, {
@@ -133,21 +134,19 @@ Deno.serve(async (req: Request) => {
         let qrData: any = {};
         try { qrData = JSON.parse(qrText); } catch { /* keep empty */ }
 
-        // Spec oficial: data.QRCode. Fallbacks defensivos.
+        // Real Fzap: data.qrCode (camelCase). Mantém fallbacks.
         let code = 
-          qrData?.data?.QRCode ?? 
           qrData?.data?.qrCode ?? 
+          qrData?.data?.QRCode ?? 
           qrData?.data?.qrcode ?? 
           qrData?.data?.qr ?? 
           qrData?.data?.base64 ??
-          qrData?.QRCode ?? 
           qrData?.qrCode ?? 
+          qrData?.QRCode ?? 
           qrData?.qrcode ?? 
           "";
 
-        if (i === 0 || (i + 1) % 5 === 0 || code) {
-          console.log(`[Master] QR tentativa ${i+1}: ${code ? `len=${code.length}` : "vazio"} | raw=${qrText.substring(0, 200)}`);
-        }
+        console.log(`[Master] QR tentativa ${i+1}: ${code ? `len=${code.length}` : "vazio"}`);
 
         if (code && code.length > 50) {
           if (!code.startsWith('data:image')) {
@@ -159,15 +158,6 @@ Deno.serve(async (req: Request) => {
       } else {
         const errText = await qrRes.text();
         console.warn(`[Master] Tentativa ${i+1} HTTP ${qrRes.status}: ${errText.substring(0, 150)}`);
-        // Erros 500 "no session"/"not connected" → reconnect e segue
-        if (qrRes.status === 500 && /no session|not connected/i.test(errText)) {
-          console.log('[Master] Sessão não pronta — disparando novo /session/connect');
-          await fetch(`${fzapUrl}/session/connect`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-            body: JSON.stringify({}),
-          }).catch(() => {});
-        }
       }
     }
 
