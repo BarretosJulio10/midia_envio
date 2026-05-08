@@ -77,15 +77,15 @@ Deno.serve(async (req: Request) => {
       let qrData: any = {};
       try { qrData = JSON.parse(qrText); } catch { /* ignore */ }
 
-      // Spec oficial Fzap v1.23.0: data.QRCode (uppercase). Fallbacks defensivos.
+      // REAL Fzap (probe direto): data.qrCode (camelCase). Fallbacks defensivos.
       let code = 
-        qrData?.data?.QRCode ?? 
         qrData?.data?.qrCode ?? 
+        qrData?.data?.QRCode ?? 
         qrData?.data?.qrcode ?? 
         qrData?.data?.qr ?? 
         qrData?.data?.base64 ?? 
-        qrData?.QRCode ?? 
         qrData?.qrCode ?? 
+        qrData?.QRCode ?? 
         "";
 
       console.log(`[Master Status] /session/qr ${qrRes.status} | code len=${code?.length || 0} | raw=${qrText.substring(0, 200)}`);
