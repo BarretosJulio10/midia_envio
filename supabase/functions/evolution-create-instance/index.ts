@@ -141,7 +141,9 @@ Deno.serve(async (req: Request) => {
         "";
 
       const sessionStatus = qrData?.data?.sessionStatus ?? qrData?.data?.status ?? "?";
-      console.log(`[Master] QR ${i+1}/15 HTTP=${qrRes.status} status=${sessionStatus} len=${code?.length || 0}`);
+      // SEMPRE logar o raw (primeiros 300 chars) — sem isso é impossível
+      // diagnosticar quando o QR vem vazio com HTTP 200.
+      console.log(`[Master] QR ${i+1}/15 HTTP=${qrRes.status} status=${sessionStatus} len=${code?.length || 0} raw=${qrText.substring(0, 300)}`);
 
       if (code && code.length > 50) {
         if (!code.startsWith('data:image')) {
@@ -151,17 +153,13 @@ Deno.serve(async (req: Request) => {
         console.log(`[Master] QR Code obtido na tentativa ${i+1}`);
         break;
       }
-
-      if (!qrRes.ok) {
-        console.warn(`[Master] QR HTTP ${qrRes.status}: ${qrText.substring(0, 200)}`);
-      }
     }
 
     if (!qrCode) {
       console.error('[Master] QR Code não obtido após 15 tentativas (30s)');
     }
 
-    // 4. SALVAR NO BANCO
+    // 5. SALVAR NO BANCO — onConflict obrigatório para evitar duplicatas
     await supabase.from('evolution_config').upsert({
       user_id: user.id,
       instance_id: instance_name,
@@ -171,7 +169,7 @@ Deno.serve(async (req: Request) => {
       qr_code: qrCode,
       instance_created: true,
       updated_at: new Date().toISOString()
-    });
+    }, { onConflict: 'user_id' });
 
     return new Response(
       JSON.stringify({
