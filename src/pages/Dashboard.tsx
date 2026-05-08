@@ -19,7 +19,7 @@ export default function Dashboard() {
 
   const checkConfig = async () => {
     const { data } = await supabase
-      .from('evolution_config')
+      .from('fzap_config')
       .select('*')
       .single();
 

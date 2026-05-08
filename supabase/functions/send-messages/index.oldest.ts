@@ -35,7 +35,7 @@ serve(async (req) => {
     console.log(`Action received: ${action} for user: ${user.id}`);
 
     // Get Evolution API credentials from secrets
-    const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
+    const evolutionApiUrl = Deno.env.get('FZAP_API_URL');
     const evolutionApiKey = Deno.env.get('global_apikay');
 
     if (!evolutionApiUrl || !evolutionApiKey) {
@@ -44,7 +44,7 @@ serve(async (req) => {
 
     // Get user config (delays, instance_id, etc)
     const { data: config, error: configError } = await supabase
-      .from('evolution_config')
+      .from('fzap_config')
       .select('*')
       .eq('user_id', user.id)
       .single();
@@ -237,7 +237,7 @@ serve(async (req) => {
               .update({
                 status: 'sent',
                 sent_at: new Date().toISOString(),
-                evolution_msg_id: result.key?.id || null,
+                fzap_msg_id: result.key?.id || null,
               })
               .eq('id', message.id);
 

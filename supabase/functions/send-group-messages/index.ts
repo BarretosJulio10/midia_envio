@@ -35,15 +35,15 @@ Deno.serve(async (req) => {
     if (userError || !user) throw new Error('Nao autorizado');
 
     const { data: config, error: configError } = await supabaseClient
-      .from('evolution_config')
+      .from('fzap_config')
       .select('*')
       .eq('user_id', user.id)
       .single();
 
     if (configError || !config) throw new Error('Configuracao nao encontrada');
 
-    const fzapUrl = Deno.env.get('EVOLUTION_API_URL');
-    if (!fzapUrl) throw new Error('EVOLUTION_API_URL nao definida');
+    const fzapUrl = Deno.env.get('FZAP_API_URL');
+    if (!fzapUrl) throw new Error('FZAP_API_URL nao definida');
 
     if (!config.token) {
       throw new Error('Token da instância não encontrado no banco. Reconecte sua instância Fzap no painel.');

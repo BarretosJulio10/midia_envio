@@ -40,9 +40,9 @@ CREATE TRIGGER update_saved_lists_updated_at
   EXECUTE FUNCTION update_updated_at_column();
 
 -- Adicionar campos para salvar credenciais de instância Evolution no config
-ALTER TABLE evolution_config ADD COLUMN IF NOT EXISTS instance_created boolean DEFAULT false;
-ALTER TABLE evolution_config ADD COLUMN IF NOT EXISTS qr_code text;
-ALTER TABLE evolution_config ADD COLUMN IF NOT EXISTS connection_status text DEFAULT 'disconnected';
+ALTER TABLE fzap_config ADD COLUMN IF NOT EXISTS instance_created boolean DEFAULT false;
+ALTER TABLE fzap_config ADD COLUMN IF NOT EXISTS qr_code text;
+ALTER TABLE fzap_config ADD COLUMN IF NOT EXISTS connection_status text DEFAULT 'disconnected';
 
 -- Criar índice para melhorar performance
 CREATE INDEX IF NOT EXISTS idx_saved_lists_user_id ON saved_lists(user_id);
@@ -51,6 +51,6 @@ CREATE INDEX IF NOT EXISTS idx_saved_lists_user_id ON saved_lists(user_id);
 COMMENT ON TABLE saved_lists IS 'Armazena listas de contatos salvas pelo usuário para envios futuros';
 COMMENT ON COLUMN saved_lists.contacts IS 'Array JSON com dados dos contatos: phone, message_text, filename';
 COMMENT ON COLUMN blacklist.number_ids IS 'IDs separados por vírgula para blacklist (ex: 1,2,3,7,30)';
-COMMENT ON COLUMN evolution_config.instance_created IS 'Indica se a instância foi criada automaticamente';
-COMMENT ON COLUMN evolution_config.qr_code IS 'QR Code base64 da última conexão';
-COMMENT ON COLUMN evolution_config.connection_status IS 'Status da conexão: disconnected, connecting, connected';
+COMMENT ON COLUMN fzap_config.instance_created IS 'Indica se a instância foi criada automaticamente';
+COMMENT ON COLUMN fzap_config.qr_code IS 'QR Code base64 da última conexão';
+COMMENT ON COLUMN fzap_config.connection_status IS 'Status da conexão: disconnected, connecting, connected';

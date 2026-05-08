@@ -42,11 +42,11 @@ Deno.serve(async (req) => {
     const { action } = await req.json();
     console.log(`Action received: ${action} for user: ${user.id}`);
 
-    const fzapUrl = Deno.env.get('EVOLUTION_API_URL');
-    if (!fzapUrl) throw new Error('EVOLUTION_API_URL não configurada');
+    const fzapUrl = Deno.env.get('FZAP_API_URL');
+    if (!fzapUrl) throw new Error('FZAP_API_URL não configurada');
 
     const { data: config, error: configError } = await supabase
-      .from('evolution_config')
+      .from('fzap_config')
       .select('*')
       .eq('user_id', user.id)
       .single();
@@ -245,7 +245,7 @@ Deno.serve(async (req) => {
           await supabase.from('messages').update({
             status: 'sent',
             sent_at: new Date().toISOString(),
-            evolution_msg_id: result.data?.id || null,
+            fzap_msg_id: result.data?.id || null,
             error_message: null,
           }).eq('id', message.id);
 
