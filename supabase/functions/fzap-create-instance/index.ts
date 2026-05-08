@@ -44,7 +44,10 @@ Deno.serve(async (req: Request) => {
     if (!fzapUrl || !adminToken) {
       throw new Error('FZAP_API_URL ou FZAP_ADMIN_TOKEN não configurados');
     }
-    log(`Início: instance_name=${instance_name} fzapUrl=${fzapUrl} adminToken_len=${adminToken.length}`);
+     log(`Início: instance_name=${instance_name} fzapUrl=${fzapUrl} adminToken_len=${adminToken?.length || 0}`);
+ 
+     // Normalização do token (remover 'Bearer ' se existir no segredo, mas o spec diz que é token direto)
+     const finalAdminToken = adminToken.trim();
 
     // ============================================================
     // 1. RESOLVER USER → tentar achar; se não houver, criar.
@@ -55,10 +58,11 @@ Deno.serve(async (req: Request) => {
 
     const listRes = await fetch(`${fzapUrl}/admin/users`, {
       method: 'GET',
-      headers: { 'Authorization': adminToken },
+      headers: { 'Authorization': finalAdminToken },
     });
     const listText = await listRes.text();
-    log(`GET /admin/users → ${listRes.status} (${listText.length} bytes) sample=${listText.substring(0,200)}`);
+    const listStatus = listRes.status;
+    log(`GET /admin/users → ${listStatus} (${listText.length} bytes) sample=${listText.substring(0,200)}`);
 
     let listData: any = {};
     try { listData = JSON.parse(listText); } catch {}
@@ -73,14 +77,15 @@ Deno.serve(async (req: Request) => {
     } else {
       // Não existe → criar conforme spec POST /admin/users
       const newToken = Math.random().toString(36).substring(2, 14).toUpperCase() +
-                       Math.random().toString(36).substring(2, 8).toUpperCase();
+                       Math.random().toString(36).substring(2, 10).toUpperCase();
       log(`Criando novo user: name=${instance_name}`);
       const createRes = await fetch(`${fzapUrl}/admin/users`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': adminToken },
+        headers: { 'Content-Type': 'application/json', 'Authorization': finalAdminToken },
         body: JSON.stringify({ name: instance_name, token: newToken }),
       });
       const createText = await createRes.text();
+      const createStatus = createRes.status;
       log(`POST /admin/users → ${createRes.status}: ${createText.substring(0, 400)}`);
 
       if (!createRes.ok) {
