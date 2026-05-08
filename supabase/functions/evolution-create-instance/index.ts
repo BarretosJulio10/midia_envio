@@ -97,7 +97,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // ============================================================
-    // 2. SE JÁ ESTIVER LOGADO, FORÇAR LOGOUT (para gerar novo QR)
+    // 2. STATUS — decidir se precisa logout e/ou connect
     // ============================================================
     const statusRes = await fetch(`${fzapUrl}/session/status`, {
       headers: { 'token': instanceToken },
@@ -105,7 +105,8 @@ Deno.serve(async (req: Request) => {
     const statusText = await statusRes.text();
     let statusJson: any = {}; try { statusJson = JSON.parse(statusText); } catch {}
     const alreadyLoggedIn = statusJson?.data?.loggedIn === true;
-    log(`/session/status → ${statusRes.status} loggedIn=${alreadyLoggedIn} raw=${statusText.substring(0,250)}`);
+    const alreadyConnected = statusJson?.data?.connected === true;
+    log(`/session/status → ${statusRes.status} loggedIn=${alreadyLoggedIn} connected=${alreadyConnected} raw=${statusText.substring(0,250)}`);
 
     if (alreadyLoggedIn) {
       log(`Forçando logout para regenerar QR`);
@@ -114,23 +115,29 @@ Deno.serve(async (req: Request) => {
         headers: { 'Content-Type': 'application/json', 'token': instanceToken },
       }).catch((e) => { log(`logout err: ${e.message}`); return null; });
       if (lo) log(`/session/logout → ${lo.status}`);
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 1500));
     }
 
     // ============================================================
-    // 3. POST /session/connect — spec exige body com immediate
+    // 3. POST /session/connect — APENAS se websocket não estiver ativo.
+    // Spec (linha 3714): chamar connect novamente reinicia o socket e
+    // invalida o QR em geração. Por isso só chamamos quando precisamos.
     // ============================================================
-    log(`POST /session/connect (immediate:true)`);
-    const connectRes = await fetch(`${fzapUrl}/session/connect`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-      body: JSON.stringify({ immediate: true }),
-    });
-    const connectText = await connectRes.text();
-    log(`/session/connect → ${connectRes.status}: ${connectText.substring(0, 400)}`);
+    if (!alreadyConnected || alreadyLoggedIn) {
+      log(`POST /session/connect (immediate:true)`);
+      const connectRes = await fetch(`${fzapUrl}/session/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+        body: JSON.stringify({ immediate: true }),
+      });
+      const connectText = await connectRes.text();
+      log(`/session/connect → ${connectRes.status}: ${connectText.substring(0, 400)}`);
 
-    if (!connectRes.ok) {
-      throw new Error(`Falha em /session/connect (${connectRes.status}): ${connectText.substring(0, 200)}`);
+      if (!connectRes.ok) {
+        throw new Error(`Falha em /session/connect (${connectRes.status}): ${connectText.substring(0, 200)}`);
+      }
+    } else {
+      log(`Socket já conectado — pulando /session/connect (evita resetar QR)`);
     }
 
     // ============================================================
@@ -138,7 +145,7 @@ Deno.serve(async (req: Request) => {
     // QR é assíncrono. Polling generoso: 20 × 2s = 40s.
     // ============================================================
     let qrCode = "";
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 25; i++) {
       await new Promise(r => setTimeout(r, 2000));
       const qrRes = await fetch(`${fzapUrl}/session/qr`, {
         headers: { 'token': instanceToken },
@@ -147,7 +154,7 @@ Deno.serve(async (req: Request) => {
       let qrJson: any = {}; try { qrJson = JSON.parse(qrText); } catch {}
       // Spec pode usar QRCode (maiúsculo) mas alguns builds usam qrcode/QR
       const code = qrJson?.data?.QRCode ?? qrJson?.data?.qrcode ?? qrJson?.data?.QR ?? qrJson?.data?.qr ?? "";
-      log(`QR ${i+1}/15 HTTP=${qrRes.status} len=${code.length} keys=${Object.keys(qrJson?.data ?? {}).join(',')} raw=${qrText.substring(0, 200)}`);
+      log(`QR ${i+1}/25 HTTP=${qrRes.status} len=${code.length} keys=${Object.keys(qrJson?.data ?? {}).join(',')} raw=${qrText.substring(0, 200)}`);
       if (code && code.length > 50) {
         qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
         log(`✓ QR obtido na tentativa ${i+1}`);
