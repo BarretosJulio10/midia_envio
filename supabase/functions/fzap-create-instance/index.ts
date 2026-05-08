@@ -40,9 +40,9 @@ Deno.serve(async (req: Request) => {
     if (!instance_name) throw new Error('Nome da instância é obrigatório');
 
     const fzapUrl = (Deno.env.get('FZAP_API_URL') ?? '').replace(/\/$/, '');
-    const adminToken = Deno.env.get('global_apikay');
+    const adminToken = Deno.env.get('FZAP_ADMIN_TOKEN');
     if (!fzapUrl || !adminToken) {
-      throw new Error('FZAP_API_URL ou global_apikay não configurados');
+      throw new Error('FZAP_API_URL ou FZAP_ADMIN_TOKEN não configurados');
     }
     log(`Início: instance_name=${instance_name} fzapUrl=${fzapUrl} adminToken_len=${adminToken.length}`);
 

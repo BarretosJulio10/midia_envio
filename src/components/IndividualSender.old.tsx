@@ -61,7 +61,7 @@ export default function IndividualSender() {
             .single();
 
         if (!configData) {
-            toast.error("Configure a API Evolution primeiro!");
+            toast.error("Configure a API Fzap primeiro!");
             return;
         }
 

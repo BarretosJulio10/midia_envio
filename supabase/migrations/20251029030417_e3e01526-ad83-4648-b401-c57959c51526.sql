@@ -39,7 +39,7 @@ CREATE TRIGGER update_saved_lists_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
--- Adicionar campos para salvar credenciais de instância Evolution no config
+-- Adicionar campos para salvar credenciais de instância Fzap no config
 ALTER TABLE fzap_config ADD COLUMN IF NOT EXISTS instance_created boolean DEFAULT false;
 ALTER TABLE fzap_config ADD COLUMN IF NOT EXISTS qr_code text;
 ALTER TABLE fzap_config ADD COLUMN IF NOT EXISTS connection_status text DEFAULT 'disconnected';

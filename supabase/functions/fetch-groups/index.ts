@@ -1,8 +1,8 @@
 /**
  * Edge Function: fetch-groups (Fzap v1.23.0)
  *
- * Endpoint Fzap: GET /group/list  (mesmo path da Uazapi ✅)
- * Header: token: <instance_token>  (mesmo da Uazapi ✅)
+ * Endpoint Fzap: GET /group/list  (mesmo path da Fzap ✅)
+ * Header: token: <instance_token>  (mesmo da Fzap ✅)
  * Mudança: parsing da resposta (data.[] ao invés de groups.[])
  */
 
@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
 
     console.log(`[fetch-groups] Buscando grupos de ${fzapUrl}/group/list`);
 
-    // GET /group/list — mesmo endpoint da Uazapi
+    // GET /group/list — mesmo endpoint da Fzap
     const response = await fetch(`${fzapUrl}/group/list`, {
       method: 'GET',
       headers: {

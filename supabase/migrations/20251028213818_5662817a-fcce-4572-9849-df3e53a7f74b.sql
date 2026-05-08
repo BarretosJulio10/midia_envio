@@ -1,4 +1,4 @@
--- Tabela de configurações da API Evolution
+-- Tabela de configurações da API Fzap
 CREATE TABLE public.fzap_config (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,

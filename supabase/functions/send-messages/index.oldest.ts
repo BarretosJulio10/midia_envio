@@ -34,12 +34,12 @@ serve(async (req) => {
     const { action } = await req.json();
     console.log(`Action received: ${action} for user: ${user.id}`);
 
-    // Get Evolution API credentials from secrets
-    const evolutionApiUrl = Deno.env.get('FZAP_API_URL');
-    const evolutionApiKey = Deno.env.get('global_apikay');
+    // Get Fzap API credentials from secrets
+    const fzapApiUrl = Deno.env.get('FZAP_API_URL');
+    const fzapApiKey = Deno.env.get('FZAP_ADMIN_TOKEN');
 
-    if (!evolutionApiUrl || !evolutionApiKey) {
-      throw new Error('Credenciais da Evolution API não configuradas');
+    if (!fzapApiUrl || !fzapApiKey) {
+      throw new Error('Credenciais da Fzap API não configuradas');
     }
 
     // Get user config (delays, instance_id, etc)
@@ -50,7 +50,7 @@ serve(async (req) => {
       .single();
 
     if (configError || !config || !config.instance_id) {
-      throw new Error('Configuração da Evolution API não encontrada');
+      throw new Error('Configuração da Fzap API não encontrada');
     }
 
     if (action === 'pause') {
@@ -191,8 +191,8 @@ serve(async (req) => {
             else if (['mp3', 'm4a', 'wav', 'ogg', 'aac', 'flac', 'wma', 'opus'].includes(ext)) mediaType = 'audio';
             else if (['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'zip', 'rar', '7z', 'csv'].includes(ext)) mediaType = 'document';
 
-            // Send media via Evolution API
-            let endpoint = `${evolutionApiUrl}/message/sendMedia/${config.instance_id}`;
+            // Send media via Fzap API
+            let endpoint = `${fzapApiUrl}/message/sendMedia/${config.instance_id}`;
             let payload: any = {
               number: message.phone,
               mediatype: mediaType,
@@ -202,7 +202,7 @@ serve(async (req) => {
             };
 
             if (mediaType === 'sticker') {
-              endpoint = `${evolutionApiUrl}/message/sendSticker/${config.instance_id}`;
+              endpoint = `${fzapApiUrl}/message/sendSticker/${config.instance_id}`;
               payload = {
                 number: message.phone,
                 sticker: signedUrl,
@@ -217,7 +217,7 @@ serve(async (req) => {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'apikey': evolutionApiKey,
+                  'apikey': fzapApiKey,
                 },
                 body: JSON.stringify(payload),
               }
@@ -225,7 +225,7 @@ serve(async (req) => {
 
             if (!response.ok) {
               const errorBody = await response.text();
-              throw new Error(`Evolution API ${response.status}: ${errorBody}`);
+              throw new Error(`Fzap API ${response.status}: ${errorBody}`);
             }
 
             const result = await response.json();

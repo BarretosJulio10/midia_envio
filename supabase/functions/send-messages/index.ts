@@ -1,7 +1,7 @@
 /**
  * Edge Function: send-messages (Fzap v1.23.0)
  *
- * Diferenças Fzap vs Uazapi:
+ * Diferenças Fzap vs Fzap:
  *   - Endpoints separados por tipo de mídia (era /send/media único):
  *       image   → POST /chat/send/image    campo: image
  *       video   → POST /chat/send/video    campo: video
@@ -174,7 +174,7 @@ Deno.serve(async (req) => {
           else if (['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'zip', 'rar', '7z', 'csv'].includes(ext)) mediaType = 'document';
 
           // ──────────────────────────────────────────────────────────────────
-          // Fzap: endpoints separados por tipo (era /send/media único na Uazapi)
+          // Fzap: endpoints separados por tipo (era /send/media único na Fzap)
           // Campos: phone (era number), caption (era text), arquivo tipado (era file)
           // ──────────────────────────────────────────────────────────────────
           let endpoint: string;
