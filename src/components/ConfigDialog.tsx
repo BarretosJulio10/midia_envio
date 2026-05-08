@@ -423,6 +423,17 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
             )}
 
             {/* Botões de ação */}
+            {serverLogs.length > 0 && (
+              <details className="rounded-lg border border-border bg-muted/30 p-2 text-xs" open>
+                <summary className="cursor-pointer font-medium text-muted-foreground">
+                  Logs do servidor ({serverLogs.length})
+                </summary>
+                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all text-[10px] leading-tight text-muted-foreground">
+{serverLogs.join('\n')}
+                </pre>
+              </details>
+            )}
+
             <div className="flex gap-2 pt-2">
               <Button
                 type="button"
