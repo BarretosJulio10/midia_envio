@@ -1,7 +1,7 @@
 # AI MEMORY - Bot Envios Fzap
 
 ## Contexto do Projeto
-Sistema de envios em massa (WhatsApp) migrado da Fzap para a **Fzap API (v1.23.0)**.
+Sistema de envios em massa (WhatsApp) utilizando a **Fzap API (v1.23.0)**.
 O sistema utiliza Supabase (Edge Functions + Database + Storage) e projeto atual: `uvvaxwtumuabfklccjgd`.
 
 ## Diretrizes Técnicas
@@ -43,7 +43,11 @@ qrcode → [Voltar] → fzap-reset-instance → step: form
 - Limpa banco: `instance_created=false`, `qr_code=null`, `connection_status='disconnected'`, `token=''`
 - É tolerante a falhas de rede (limpa banco mesmo se API não responder).
 
-## Estado Atual (2026-05-07)
+## Estado Atual (2026-05-08)
+O sistema foi totalmente refatorado para a **Fzap API (v1.23.0)**.
+- **Backend**: 8 Supabase Edge Functions migradas de "evolution-*" para "fzap-*".
+- **Database**: Tabela `evolution_config` renomeada para `fzap_config`.
+- **Secrets**: `FZAP_API_URL` e `FZAP_ADMIN_TOKEN` configurados.
 O sistema foi migrado com sucesso para a **Fzap API (v1.23.0)**.
 - **Backend**: 8 Supabase Edge Functions deployadas no projeto `uvvaxwtumuabfklccjgd`.
 - **Secrets**: `FZAP_API_URL` e `FZAP_ADMIN_TOKEN` configurados.
