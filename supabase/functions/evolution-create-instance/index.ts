@@ -109,32 +109,34 @@ Deno.serve(async (req: Request) => {
     log(`/session/status → ${statusRes.status} loggedIn=${alreadyLoggedIn} connected=${alreadyConnected} raw=${statusText.substring(0,250)}`);
 
     if (alreadyLoggedIn) {
-      log(`Forçando logout para regenerar QR`);
+      log(`Forçando logout para regenerar QR (spec 4127: QR só é emitido com loggedIn=false)`);
       const lo = await fetch(`${fzapUrl}/session/logout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'token': instanceToken },
       }).catch((e) => { log(`logout err: ${e.message}`); return null; });
       if (lo) log(`/session/logout → ${lo.status}`);
-      await new Promise(r => setTimeout(r, 1500));
+      // whatsmeow precisa de janela de ~3s para fechar o socket antes do reconnect (spec 3826)
+      await new Promise(r => setTimeout(r, 3000));
     }
 
     // ============================================================
-    // 3. POST /session/connect — Garantir início da geração do QR.
-    // Segundo Fzapdoc (linha 3714): se o QR expira, deve-se chamar 
-    // connect novamente para iniciar um novo fluxo. 
-    // Na criação/reset, SEMPRE forçamos o connect se não estiver logado.
+    // 3. POST /session/connect — só se ainda não há websocket ativo.
+    // Spec linha 3714: chamar connect com socket já ativo RESETA o ciclo de QR.
     // ============================================================
-    log(`POST /session/connect (immediate:true)`);
-    const connectRes = await fetch(`${fzapUrl}/session/connect`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-      body: JSON.stringify({ immediate: true }),
-    });
-    const connectText = await connectRes.text();
-    log(`/session/connect → ${connectRes.status}: ${connectText.substring(0, 400)}`);
-
-    if (!connectRes.ok) {
-      throw new Error(`Falha em /session/connect (${connectRes.status}): ${connectText.substring(0, 200)}`);
+    if (alreadyConnected && !alreadyLoggedIn) {
+      log(`connected=true loggedIn=false → socket já ativo emitindo QR; pulando /session/connect`);
+    } else {
+      log(`POST /session/connect (immediate:true)`);
+      const connectRes = await fetch(`${fzapUrl}/session/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+        body: JSON.stringify({ immediate: true }),
+      });
+      const connectText = await connectRes.text();
+      log(`/session/connect ${connectRes.status} ct=${connectRes.headers.get('content-type') ?? '-'} body=${connectText.substring(0, 400)}`);
+      if (!connectRes.ok) {
+        throw new Error(`Falha em /session/connect (${connectRes.status}): ${connectText.substring(0, 200)}`);
+      }
     }
 
     // ============================================================
@@ -147,12 +149,13 @@ Deno.serve(async (req: Request) => {
     for (let i = 0; i < 3; i++) {
       await new Promise(r => setTimeout(r, 2000));
       const qrRes = await fetch(`${fzapUrl}/session/qr`, {
-        headers: { 'token': instanceToken },
+        headers: { 'token': instanceToken, 'Cache-Control': 'no-cache' },
       });
       const qrText = await qrRes.text();
       let qrJson: any = {}; try { qrJson = JSON.parse(qrText); } catch {}
-      const code = qrJson?.data?.QRCode ?? qrJson?.data?.qrcode ?? qrJson?.data?.QR ?? qrJson?.data?.qr ?? "";
-      log(`QR fast ${i+1}/3 HTTP=${qrRes.status} len=${code.length} keys=${Object.keys(qrJson?.data ?? {}).join(',')}`);
+      // Spec linha 4122: campo é estritamente `data.QRCode`. Sem fallbacks.
+      const code = qrJson?.data?.QRCode ?? "";
+      log(`QR fast ${i+1}/3 HTTP=${qrRes.status} ct=${qrRes.headers.get('content-type') ?? '-'} QRCode_len=${code.length} body=${qrText.substring(0, 200)}`);
       if (code && code.length > 50) {
         qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
         log(`✓ QR adiantado na tentativa ${i+1}`);
