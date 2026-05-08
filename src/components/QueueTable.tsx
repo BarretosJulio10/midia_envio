@@ -78,8 +78,8 @@ export default function QueueTable({ messages }: QueueTableProps) {
         <CardTitle>Fila de Envio</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="rounded-md border border-border/50 overflow-hidden">
-          <Table>
+        <div className="rounded-md border border-border/50 overflow-x-auto">
+          <Table className="min-w-[640px]">
             <TableHeader>
               <TableRow className="hover:bg-muted/50">
                 <TableHead>Arquivo</TableHead>
