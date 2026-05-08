@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Loader2, CheckCircle, Wifi, RefreshCcw, ArrowLeft, AlertTriangle } from "lucide-react";
+import { Loader2, CheckCircle, Wifi, RefreshCcw, ArrowLeft, AlertTriangle, QrCode } from "lucide-react";
 
 interface ConfigDialogProps {
   open: boolean;
@@ -22,6 +22,7 @@ interface ConfigDialogProps {
 export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDialogProps) {
   const [loading, setLoading] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [fetchingQr, setFetchingQr] = useState(false);
   const [step, setStep] = useState<"form" | "qrcode" | "connected">("form");
   const [qrCode, setQrCode] = useState("");
   const [pairingCode, setPairingCode] = useState("");
@@ -209,6 +210,34 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
       toast.error(error.message || 'Erro ao limpar instância. Tente fechar e abrir novamente.');
     } finally {
       setResetting(false);
+    }
+  };
+
+  /**
+   * Busca manualmente o QR Code chamando evolution-status.
+   * Útil quando o polling automático ainda não pegou o QR.
+   * Spec Fzap: GET /session/qr → data.QRCode (data:image/png;base64,...)
+   */
+  const handleFetchQrManually = async () => {
+    setFetchingQr(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('evolution-status');
+      console.log('[Manual QR fetch]', { data, error });
+      if (error) throw error;
+      if (data?.qrCode && data.qrCode.length > 50) {
+        setQrCode(data.qrCode);
+        toast.success('QR Code atualizado!');
+      } else if (data?.connected) {
+        setStep('connected');
+        toast.success('Já está conectado!');
+      } else {
+        toast.info('QR ainda não emitido pela Fzap. Tente novamente em 2-3s.');
+      }
+    } catch (err: any) {
+      console.error('[Manual QR fetch error]', err);
+      toast.error(err.message || 'Erro ao buscar QR');
+    } finally {
+      setFetchingQr(false);
     }
   };
 
@@ -472,6 +501,25 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
               >
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Voltar
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1"
+                onClick={handleFetchQrManually}
+                disabled={fetchingQr || resetting}
+              >
+                {fetchingQr ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Buscando...
+                  </>
+                ) : (
+                  <>
+                    <QrCode className="mr-2 h-4 w-4" />
+                    Buscar QR Manualmente
+                  </>
+                )}
               </Button>
               <Button
                 type="button"
