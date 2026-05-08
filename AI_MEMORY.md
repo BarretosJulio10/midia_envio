@@ -4,8 +4,8 @@
 Sistema de envios em massa (WhatsApp) migrado da Fzap para a **Fzap API (v1.23.0)**.
 O sistema utiliza Supabase (Edge Functions + Database + Storage) e projeto atual: `uvvaxwtumuabfklccjgd`.
 
-## Regra de Ouro (Sempre Seguir)
-1. **FZAP APENAS:** Nunca use termos ou lógica relacionados à "Fzap API" ou "Fzap" nas novas implementações. 
+## Diretrizes Técnicas
+1. **FZAP APENAS:** Nunca use termos ou lógica relacionados à "Evolution API" ou "Uazapi" nas novas implementações. 
 2. **AUTENTICAÇÃO:** 
    - `Authorization` (Header): Usado apenas para operações administrativas na rota `/admin/users` (ex: criar instância). Vem do secret `FZAP_ADMIN_TOKEN`.
    - `token` (Header): Usado para TODAS AS OUTRAS operações da instância (ex: conectar, enviar mensagem, verificar status). Vem da coluna `token` na tabela `fzap_config` (salvo durante a criação).
