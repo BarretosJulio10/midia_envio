@@ -32,17 +32,31 @@ Deno.serve(async (req: Request) => {
       .select('*')
       .eq('user_id', user.id)
       .single();
-    if (!config) throw new Error('Configuração não encontrada');
+    
+    if (!config || !config.token) throw new Error('Instância não configurada');
 
     const evogoUrl = "https://evogo.pagoupix.com.br";
-    const apiKey = "006763caee95f33088ebc5ac90ce975ef1c62a2622271937450fe9254635a97f";
+    const instanceToken = config.token;
     
     log(`Verificando status na Evolution Go...`);
 
     // 1. Status
     const statusRes = await fetch(`${evogoUrl}/instance/status`, {
-      headers: { 'apikey': apiKey, 'Cache-Control': 'no-cache' },
+      headers: { 'apikey': instanceToken, 'Cache-Control': 'no-cache' },
     });
+    
+    if (statusRes.status === 401 || statusRes.status === 400) {
+      log(`Sessão não encontrada ou expirada (HTTP ${statusRes.status}).`);
+      return new Response(JSON.stringify({
+        success: true,
+        connected: false,
+        loggedIn: false,
+        qrCode: null,
+        status: 'disconnected',
+        logs
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const statusJson = await statusRes.json();
     const isLoggedIn  = statusJson?.data?.loggedIn === true;
     const isConnected = statusJson?.data?.connected === true;
@@ -53,21 +67,14 @@ Deno.serve(async (req: Request) => {
     // 2. QR Code (se não logado)
     if (!isLoggedIn) {
       const qrRes = await fetch(`${evogoUrl}/instance/qr`, {
-        headers: { 'apikey': apiKey, 'Cache-Control': 'no-cache' },
+        headers: { 'apikey': instanceToken, 'Cache-Control': 'no-cache' },
       });
       const qrJson = await qrRes.json();
-      const code = qrJson?.data?.qr ?? "";
+      const code = qrJson?.data?.Qrcode ?? ""; // Note: Qrcode com Q maiúsculo no retorno da API
       
       if (code) {
         qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
         log(`✓ QR Code obtido`);
-      } else if (!isConnected) {
-        log(`Instância desconectada, tentando reconectar...`);
-        await fetch(`${evogoUrl}/instance/connect`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
-          body: JSON.stringify({ immediate: true }),
-        });
       }
     }
 
