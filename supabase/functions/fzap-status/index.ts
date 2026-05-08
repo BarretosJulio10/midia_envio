@@ -70,11 +70,33 @@ Deno.serve(async (req: Request) => {
         headers: { 'apikey': instanceToken, 'Cache-Control': 'no-cache' },
       });
       const qrJson = await qrRes.json();
-      const code = qrJson?.data?.Qrcode ?? ""; // Note: Qrcode com Q maiúsculo no retorno da API
+      // A API pode retornar `qr` (docs) ou `Qrcode`/`QRCode` (forks). Aceita todos.
+      const code =
+        qrJson?.data?.qr ??
+        qrJson?.data?.Qrcode ??
+        qrJson?.data?.QRCode ??
+        "";
       
       if (code) {
         qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
         log(`✓ QR Code obtido`);
+      } else {
+        log(`Sem QR no retorno. Resposta: ${JSON.stringify(qrJson).substring(0, 200)}`);
+        // Status disconnected + sem QR = socket morreu. Reanima chamando /instance/connect.
+        if (!isConnected) {
+          log(`Reanimando instância via /instance/connect...`);
+          const reconnect = await fetch(`${evogoUrl}/instance/connect`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': instanceToken },
+            body: JSON.stringify({
+              immediate: true,
+              phone: "",
+              subscribe: ["QRCODE", "CONNECTION", "MESSAGE"],
+              webhookUrl: "",
+            }),
+          });
+          log(`reconnect HTTP ${reconnect.status}`);
+        }
       }
     }
 
