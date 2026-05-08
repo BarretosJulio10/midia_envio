@@ -1,89 +1,156 @@
-// Fzap driver (legacy — uses /session, /chat/send, header "token")
+// Fzap driver — OpenAPI v1.23.0
+// Auth: Authorization (admin token) for /admin/*; token header for user endpoints.
+// QR endpoint returns data.QRCode already as `data:image/png;base64,...`.
 import type { WhatsAppDriver, DriverCreds, DriverStatus, SendMediaInput } from "./types.ts";
 
 export class FzapDriver implements WhatsAppDriver {
   slug = 'fzap';
   constructor(private creds: DriverCreds) {}
   private url(p: string) { return `${this.creds.baseUrl}${p}`; }
+  private adminHeaders() {
+    return { 'Content-Type': 'application/json', 'Authorization': this.creds.apiKey };
+  }
+  private userHeaders(token: string) {
+    return { 'Content-Type': 'application/json', 'token': token };
+  }
 
   async createInstance({ instanceName, userId }: { instanceName: string; userId: string }) {
     const logs: string[] = [];
-    const instanceToken = `token-${userId.substring(0, 8)}`;
-    logs.push(`[fzap] create ${instanceName}`);
-    await fetch(this.url('/instance/create'), {
+    const log = (m: string) => logs.push(`[fzap] ${m}`);
+    const instanceToken = `tk-${userId.substring(0, 12)}`;
+
+    log(`POST /admin/users name=${instanceName}`);
+    const cr = await fetch(this.url('/admin/users'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': this.creds.apiKey },
-      body: JSON.stringify({ name: instanceName, token: instanceToken }),
-    }).catch(() => {});
-    await fetch(this.url('/session/connect'), {
+      headers: this.adminHeaders(),
+      body: JSON.stringify({ name: instanceName, token: instanceToken, expiration: 0 }),
+    });
+    log(`-> ${cr.status}`);
+    if (cr.status >= 500) {
+      log(`erro admin: ${(await cr.text()).slice(0, 200)}`);
+    }
+
+    log(`POST /session/connect immediate=true`);
+    const co = await fetch(this.url('/session/connect'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+      headers: this.userHeaders(instanceToken),
       body: JSON.stringify({ immediate: true }),
-    }).catch(() => {});
+    });
+    log(`-> ${co.status}`);
+
     return { token: instanceToken, logs };
   }
 
   async getStatus({ token }: { instanceName: string; token: string }): Promise<DriverStatus & { logs: string[] }> {
     const logs: string[] = [];
-    const sr = await fetch(this.url('/session/status'), { headers: { 'token': token } });
-    if (!sr.ok) return { connected: false, loggedIn: false, qrCode: null, logs };
+    const log = (m: string) => logs.push(`[fzap] ${m}`);
+
+    const sr = await fetch(this.url('/session/status'), { headers: this.userHeaders(token) });
+    if (sr.status === 401 || sr.status === 404) {
+      log(`status ${sr.status} — instância inválida`);
+      return { connected: false, loggedIn: false, qrCode: null, logs };
+    }
+    if (!sr.ok) {
+      log(`status ${sr.status}`);
+      return { connected: false, loggedIn: false, qrCode: null, logs };
+    }
     const sj = await sr.json();
-    const loggedIn = sj?.data?.loggedIn === true;
-    const connected = sj?.data?.connected === true;
+    const d = sj?.data ?? {};
+    const loggedIn = d.loggedIn === true;
+    const connected = d.connected === true;
+    log(`loggedIn=${loggedIn} connected=${connected}`);
+
+    if (loggedIn) return { connected, loggedIn, qrCode: null, logs };
+
+    // se não está conectado, força reanimação do socket antes de pedir QR
+    if (!connected) {
+      log(`reanimando socket via /session/connect`);
+      await fetch(this.url('/session/connect'), {
+        method: 'POST', headers: this.userHeaders(token), body: JSON.stringify({ immediate: true }),
+      }).catch(() => {});
+    }
+
+    const qr = await fetch(this.url('/session/qr'), { headers: this.userHeaders(token) });
     let qrCode: string | null = null;
-    if (!loggedIn) {
-      const qr = await fetch(this.url('/session/qr'), { headers: { 'token': token } });
-      if (qr.ok) {
-        const qj = await qr.json();
-        const code = qj?.data?.qr ?? qj?.data?.Qrcode ?? qj?.data?.QRCode ?? '';
-        if (code) qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
+    if (qr.ok) {
+      const qj = await qr.json();
+      const qd = qj?.data ?? {};
+      const code = qd.QRCode ?? qd.qrCode ?? qd.qr ?? '';
+      if (code) {
+        qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
+        log(`QR obtido (${code.length} chars)`);
+      } else {
+        log(`QR ainda vazio`);
       }
+    } else {
+      log(`qr ${qr.status}`);
     }
     return { connected, loggedIn, qrCode, logs };
   }
 
   async resetInstance({ token }: { instanceName: string; token: string }) {
-    await fetch(this.url('/session/logout'), { method: 'POST', headers: { 'token': token } }).catch(() => {});
+    const r = await fetch(this.url('/session/logout'), {
+      method: 'POST', headers: this.userHeaders(token),
+    }).catch(() => null);
+    if (!r || !r.ok) {
+      await fetch(this.url('/session/disconnect'), {
+        method: 'POST', headers: this.userHeaders(token),
+      }).catch(() => {});
+    }
+    await fetch(this.url('/session/reset'), {
+      method: 'POST', headers: this.userHeaders(token),
+    }).catch(() => {});
   }
 
   async sendText({ token, to, text }: { token: string; to: string; text: string }) {
     const r = await fetch(this.url('/chat/send/text'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'token': token },
+      headers: this.userHeaders(token),
       body: JSON.stringify({ phone: to, body: text }),
     });
     if (!r.ok) throw new Error(`fzap sendText ${r.status}: ${await r.text()}`);
   }
 
   async sendMedia(p: SendMediaInput) {
-    const path = p.type === 'sticker' ? '/chat/send/sticker'
-      : p.type === 'image' ? '/chat/send/image'
-      : p.type === 'video' ? '/chat/send/video'
-      : p.type === 'audio' ? '/chat/send/audio'
-      : '/chat/send/document';
-    const body: any = { phone: p.to, caption: p.caption ?? '', fileName: p.fileName };
-    if (p.type === 'sticker') body.sticker = p.mediaUrl;
-    else if (p.type === 'image') body.image = p.mediaUrl;
-    else if (p.type === 'video') body.video = p.mediaUrl;
-    else if (p.type === 'audio') body.audio = p.mediaUrl;
-    else body.document = p.mediaUrl;
-    const r = await fetch(this.url(path), {
+    const map: Record<string, { path: string; field: string }> = {
+      image: { path: '/chat/send/image', field: 'image' },
+      video: { path: '/chat/send/video', field: 'video' },
+      audio: { path: '/chat/send/audio', field: 'audio' },
+      document: { path: '/chat/send/document', field: 'document' },
+      sticker: { path: '/chat/send/sticker', field: 'sticker' },
+    };
+    const m = map[p.type] ?? map.document;
+    const body: Record<string, unknown> = { phone: p.to, [m.field]: p.mediaUrl };
+    if (p.caption && p.type !== 'audio' && p.type !== 'sticker') body.caption = p.caption;
+    if (p.type === 'document' && p.fileName) body.fileName = p.fileName;
+
+    const r = await fetch(this.url(m.path), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'token': p.token },
+      headers: this.userHeaders(p.token),
       body: JSON.stringify(body),
     });
-    if (!r.ok) throw new Error(`fzap sendMedia ${r.status}: ${await r.text()}`);
+    if (!r.ok) throw new Error(`fzap sendMedia(${p.type}) ${r.status}: ${await r.text()}`);
   }
 
   async fetchGroups({ token }: { token: string }) {
-    const r = await fetch(this.url('/group/list'), { headers: { 'token': token } });
+    const r = await fetch(this.url('/group/list'), { headers: this.userHeaders(token) });
     if (!r.ok) return [];
     const j = await r.json();
-    const arr = Array.isArray(j) ? j : Array.isArray(j.data) ? j.data : [];
+    const arr = Array.isArray(j?.data?.groups) ? j.data.groups
+      : Array.isArray(j?.data) ? j.data
+      : Array.isArray(j) ? j : [];
     return arr.map((g: any) => ({
-      id: g.id || g.JID || g.jid,
+      id: g.jid || g.JID || g.id,
       name: g.name || g.subject || 'Sem nome',
-      participants: g.participantsCount || g.participants?.length || 0,
+      participants: Array.isArray(g.participants) ? g.participants.length
+        : (g.participantsCount ?? 0),
     }));
+  }
+
+  async testConnection() {
+    try {
+      const r = await fetch(this.url('/admin/users'), { headers: this.adminHeaders() });
+      return { ok: r.status < 500 && r.status !== 401, message: `HTTP ${r.status}` };
+    } catch (e: any) { return { ok: false, message: e.message }; }
   }
 }
