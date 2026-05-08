@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { loadActiveDriver } from "../_shared/drivers/index.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -7,81 +8,49 @@ const corsHeaders = {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
-
   try {
     const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
-
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) throw new Error('No authorization header');
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-    if (userError || !user) throw new Error('Unauthorized');
+    const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '');
+    const { data: { user } } = await supabase.auth.getUser(jwt);
+    if (!user) throw new Error('Unauthorized');
 
     const { action } = await req.json();
-    const evogoUrl = "https://evogo.pagoupix.com.br";
-    const apiKey = "006763caee95f33088ebc5ac90ce975ef1c62a2622271937450fe9254635a97f";
+    if (action !== 'start') return new Response(JSON.stringify({ success: true }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
-    if (action === 'start') {
-      const { data: messages } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'queued')
-        .limit(10);
+    const { data: config } = await supabase.from('fzap_config').select('token').eq('user_id', user.id).maybeSingle();
+    if (!config?.token) throw new Error('Instância não conectada');
 
-      if (!messages || messages.length === 0) {
-        return new Response(JSON.stringify({ success: true, message: 'Nenhuma mensagem na fila' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      }
+    const { driver } = await loadActiveDriver();
 
-      for (const msg of messages) {
-        try {
-          // Marcar como enviando
-          await supabase.from('messages').update({ status: 'sending' }).eq('id', msg.id);
+    const { data: messages } = await supabase.from('messages').select('*')
+      .eq('user_id', user.id).eq('status', 'queued').limit(10);
 
-          let endpoint = `${evogoUrl}/send/text`;
-          let body: any = {
-            to: msg.phone,
-            text: msg.message_text
-          };
+    if (!messages?.length) return new Response(JSON.stringify({ success: true, message: 'Fila vazia' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
-          // Se tiver arquivo, usa endpoint de mídia
-          if (msg.file_url) {
-            endpoint = `${evogoUrl}/send/media`;
-            body = {
-              to: msg.phone,
-              mediaUrl: msg.file_url,
-              type: 'image', // Ajustar conforme necessário
-              caption: msg.message_text
-            };
-          }
-
-          const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
-            body: JSON.stringify(body)
+    for (const msg of messages) {
+      try {
+        await supabase.from('messages').update({ status: 'sending' }).eq('id', msg.id);
+        if (msg.file_url) {
+          await driver.sendMedia({
+            token: config.token, to: msg.phone, mediaUrl: msg.file_url,
+            type: 'image', caption: msg.message_text,
           });
-
-          if (res.ok) {
-            await supabase.from('messages').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', msg.id);
-          } else {
-            const errText = await res.text();
-            throw new Error(errText);
-          }
-        } catch (err: any) {
-          await supabase.from('messages').update({ status: 'failed', error_message: err.message }).eq('id', msg.id);
+        } else {
+          await driver.sendText({ token: config.token, to: msg.phone, text: msg.message_text });
         }
+        await supabase.from('messages').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', msg.id);
+      } catch (err: any) {
+        await supabase.from('messages').update({ status: 'failed', error_message: err.message }).eq('id', msg.id);
       }
-
-      return new Response(JSON.stringify({ success: true, processed: messages.length }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-
-    return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-
+    return new Response(JSON.stringify({ success: true, processed: messages.length }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: error.message }),
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });
