@@ -26,3 +26,6 @@ verify_jwt = true
 [functions.fzap-ping]
 verify_jwt = false
 
+
+[functions.wa-test-driver]
+verify_jwt = true
