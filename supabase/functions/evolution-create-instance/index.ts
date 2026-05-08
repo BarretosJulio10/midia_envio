@@ -48,29 +48,35 @@ Deno.serve(async (req: Request) => {
       method: 'GET',
       headers: { 'Authorization': adminToken },
     });
-    if (listRes.ok) {
-      const listData = await listRes.json().catch(() => ({}));
-      const existing = Array.isArray(listData?.data)
-        ? listData.data.find((u: any) => u?.name === instance_name)
-        : null;
-      if (existing?.token) {
-        instanceToken = existing.token;
-        console.log(`[Master] Reaproveitando user existente: ${instance_name} (token len=${instanceToken.length})`);
-      }
-    }
+    // Para garantir que temos um token válido e completo, vamos deletar o user se existir e criar um novo.
+    // O endpoint /admin/users da Fzap muitas vezes retorna tokens mascarados (e.g. "abc***").
+    console.log(`[Master] Forçando recriação de usuário para garantir token íntegro: ${instance_name}`);
+    
+    // Tenta deletar se existir (ignora erro se não existir)
+    await fetch(`${fzapUrl}/admin/users/${instance_name}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': adminToken },
+    }).catch(() => {});
 
-    if (!instanceToken) {
-      console.log(`[Master] Criando usuário: ${instance_name} com token: ${generatedToken}`);
-      const createRes = await fetch(`${fzapUrl}/admin/users`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': adminToken },
-        body: JSON.stringify({ name: instance_name, token: generatedToken }),
-      });
-      const createData = await createRes.json();
-      console.log(`[Master] Resposta Create:`, JSON.stringify(createData));
-      if (!createRes.ok) throw new Error(`Falha ao criar usuário na Fzap: ${JSON.stringify(createData)}`);
+    // Criar novo usuário com o token gerado
+    const createRes = await fetch(`${fzapUrl}/admin/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': adminToken },
+      body: JSON.stringify({ name: instance_name, token: generatedToken }),
+    });
+    
+    const createData = await createRes.json().catch(() => ({}));
+    console.log(`[Master] Resposta Create:`, JSON.stringify(createData));
+    
+    if (!createRes.ok) {
+      // Se falhar o create (ex: user ainda existe), tentamos usar o generatedToken como fallback
+      console.warn(`[Master] Falha ao criar user, usando token gerado como fallback`);
+      instanceToken = generatedToken;
+    } else {
       instanceToken = createData.data?.token ?? generatedToken;
     }
+    
+    console.log(`[Master] Token definido (len=${instanceToken.length})`);
 
     // 2. CHECAR STATUS — se já logado, força LOGOUT para gerar novo QR
     const preStatusRes = await fetch(`${fzapUrl}/session/status`, {

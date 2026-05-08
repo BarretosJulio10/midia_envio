@@ -77,12 +77,6 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
         }
 
         // Reset de erros em caso de sucesso
-        console.group(`[Fzap Polling] Status Check`);
-        console.log('Dados recebidos:', data);
-        console.log('QR Code detectado:', !!(data.qrCode && data.qrCode.length > 50));
-        console.log('Status de conexão:', data.connected ? 'Conectado' : 'Aguardando...');
-        console.groupEnd();
-
         errorCountLocal = 0;
         setPollingErrors(0);
         setPollingFailed(false);
@@ -146,19 +140,11 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
     setPollingErrors(0);
 
     try {
-      console.log('[Fzap Create] Iniciando criação da instância:', instanceName);
       const { data, error } = await supabase.functions.invoke('evolution-create-instance', {
         body: { instance_name: instanceName },
       });
 
       if (error) throw error;
-
-      console.group('[Fzap Create Response]');
-      console.log('Payload completo:', data);
-      console.log('Mensagem:', data.message);
-      console.log('Sucesso:', data.success);
-      console.log('QR Inicial presente:', !!data.qrCode);
-      console.groupEnd();
 
       if (!data.success) {
         throw new Error(data.error || 'Erro ao criar instância');
