@@ -145,25 +145,36 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
         body: { instance_name: instanceName },
       });
 
-      if (error) throw error;
+      // Captura logs PRIMEIRO (antes de qualquer throw) para que o painel mostre
+      // o que aconteceu mesmo se a função retornou erro.
+      const logs: string[] = Array.isArray(data?.logs)
+        ? data.logs
+        : Array.isArray((error as any)?.context?.logs)
+          ? (error as any).context.logs
+          : [];
+      setServerLogs(logs);
+      console.log('═══ [Fzap create-instance] resposta bruta ═══');
+      console.log('data:', data);
+      console.log('error:', error);
+      logs.forEach((l) => console.log('[fzap]', l));
+      console.log('═══════════════════════════════════════════');
 
-      if (!data.success) {
-        throw new Error(data.error || 'Erro ao criar instância');
+      if (error) throw error;
+      if (!data?.success) {
+        throw new Error(data?.error || 'Erro ao criar instância');
       }
 
       setQrCode(data.qrCode || "");
       setPairingCode(data.pairingCode || "");
-      setServerLogs(Array.isArray(data.logs) ? data.logs : []);
-      console.group('[Fzap create-instance LOGS]');
-      (data.logs || []).forEach((l: string) => console.log(l));
-      console.groupEnd();
       setStep("qrcode");
 
       toast.success(data.message || "QR Code gerado! Escaneie com seu WhatsApp.");
     } catch (error: any) {
       console.error('[ConfigDialog] Create instance error:', error);
       const anyErr: any = error;
-      if (anyErr?.context?.logs) setServerLogs(anyErr.context.logs);
+      if (Array.isArray(anyErr?.context?.logs) && anyErr.context.logs.length) {
+        setServerLogs(anyErr.context.logs);
+      }
       toast.error(error.message || 'Erro ao criar instância. Tente novamente.');
     } finally {
       setLoading(false);
@@ -364,6 +375,16 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
                 {loading ? "Salvando..." : "Salvar"}
               </Button>
             </div>
+            {serverLogs.length > 0 && (
+              <details className="rounded-lg border border-border bg-muted/30 p-2 text-xs" open>
+                <summary className="cursor-pointer font-medium text-muted-foreground">
+                  Logs do servidor ({serverLogs.length})
+                </summary>
+                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all text-[10px] leading-tight text-muted-foreground">
+{serverLogs.join('\n')}
+                </pre>
+              </details>
+            )}
           </form>
         )}
 
