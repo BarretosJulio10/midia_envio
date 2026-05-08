@@ -40,11 +40,11 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border/50 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+        <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-xl sm:text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
             WhatsApp Sender
           </h1>
-          <div className="flex gap-2 items-center">
+          <div className="flex flex-wrap gap-2 items-center">
             <ActiveDriverBadge onClick={() => navigate('/admin/drivers')} />
             <SavedListsManager />
 
@@ -69,16 +69,16 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8">
         <Tabs defaultValue="individual" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-8">
+          <TabsList className="grid w-full grid-cols-2 mb-6 sm:mb-8">
             <TabsTrigger value="individual" className="gap-2">
               <Send className="h-4 w-4" />
-              Envio Individual
+              <span className="hidden xs:inline sm:inline">Envio</span> Individual
             </TabsTrigger>
             <TabsTrigger value="groups" className="gap-2">
               <Users className="h-4 w-4" />
-              Envio para Grupos
+              <span className="hidden xs:inline sm:inline">Envio para</span> Grupos
             </TabsTrigger>
           </TabsList>
 
