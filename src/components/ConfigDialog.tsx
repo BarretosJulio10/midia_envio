@@ -533,7 +533,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
             )}
 
             {/* Botões de ação */}
-            <div className="flex gap-2 pt-2">
+            <div className="flex flex-col sm:flex-row gap-2 pt-2">
               <Button
                 type="button"
                 variant="outline"
