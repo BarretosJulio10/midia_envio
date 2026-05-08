@@ -74,11 +74,11 @@ export default function Dashboard() {
           <TabsList className="grid w-full grid-cols-2 mb-6 sm:mb-8">
             <TabsTrigger value="individual" className="gap-2">
               <Send className="h-4 w-4" />
-              <span className="hidden xs:inline sm:inline">Envio</span> Individual
+              <span className="hidden sm:inline">Envio</span> Individual
             </TabsTrigger>
             <TabsTrigger value="groups" className="gap-2">
               <Users className="h-4 w-4" />
-              <span className="hidden xs:inline sm:inline">Envio para</span> Grupos
+              <span className="hidden sm:inline">Envio para</span> Grupos
             </TabsTrigger>
           </TabsList>
 
