@@ -8,10 +8,13 @@ import ConfigDialog from "@/components/ConfigDialog";
 import SavedListsManager from "@/components/SavedListsManager";
 import GroupSender from "@/components/GroupSender";
 import IndividualSender from "@/components/IndividualSender";
+import ActiveDriverBadge from "@/components/ActiveDriverBadge";
+import { useNavigate } from "react-router-dom";
 
 export default function Dashboard() {
   const [hasConfig, setHasConfig] = useState(false);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     checkConfig();
@@ -41,7 +44,8 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
             WhatsApp Sender
           </h1>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <ActiveDriverBadge onClick={() => navigate('/admin/drivers')} />
             <SavedListsManager />
 
             <Button

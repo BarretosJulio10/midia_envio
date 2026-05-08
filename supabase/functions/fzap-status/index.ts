@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { loadActiveDriver } from "../_shared/drivers/index.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -7,119 +8,42 @@ const corsHeaders = {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
-
   const logs: string[] = [];
-  const log = (msg: string) => {
-    const line = `[${new Date().toISOString().substring(11, 23)}] ${msg}`;
-    console.log(line);
-    logs.push(line);
-  };
-
   try {
     const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
+    const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '');
+    const { data: { user } } = await supabase.auth.getUser(jwt);
+    if (!user) throw new Error('Não autorizado');
 
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) throw new Error('Sem header de autorização');
-    const jwt = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: userError } = await supabase.auth.getUser(jwt);
-    if (userError || !user) throw new Error('Não autorizado');
+    const { data: config } = await supabase.from('fzap_config').select('*').eq('user_id', user.id).maybeSingle();
+    if (!config?.token) throw new Error('Instância não configurada');
 
-    const { data: config } = await supabase
-      .from('fzap_config')
-      .select('*')
-      .eq('user_id', user.id)
-      .single();
-    
-    if (!config || !config.token) throw new Error('Instância não configurada');
+    const { driver, slug } = await loadActiveDriver();
+    logs.push(`Driver ativo: ${slug}`);
 
-    const evogoUrl = "https://evogo.pagoupix.com.br";
-    const instanceToken = config.token;
-    
-    log(`Verificando status na Evolution Go...`);
+    const result = await driver.getStatus({ instanceName: config.instance_id, token: config.token });
+    logs.push(...result.logs);
 
-    // 1. Status
-    const statusRes = await fetch(`${evogoUrl}/instance/status`, {
-      headers: { 'apikey': instanceToken, 'Cache-Control': 'no-cache' },
-    });
-    
-    if (statusRes.status === 401 || statusRes.status === 400) {
-      log(`Sessão não encontrada ou expirada (HTTP ${statusRes.status}).`);
-      return new Response(JSON.stringify({
-        success: true,
-        connected: false,
-        loggedIn: false,
-        qrCode: null,
-        status: 'disconnected',
-        logs
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-
-    const statusJson = await statusRes.json();
-    const isLoggedIn  = statusJson?.data?.loggedIn === true;
-    const isConnected = statusJson?.data?.connected === true;
-    log(`Status: loggedIn=${isLoggedIn} connected=${isConnected}`);
-
-    let qrCode = config.qr_code ?? "";
-
-    // 2. QR Code (se não logado)
-    if (!isLoggedIn) {
-      const qrRes = await fetch(`${evogoUrl}/instance/qr`, {
-        headers: { 'apikey': instanceToken, 'Cache-Control': 'no-cache' },
-      });
-      const qrJson = await qrRes.json();
-      // A API pode retornar `qr` (docs) ou `Qrcode`/`QRCode` (forks). Aceita todos.
-      const code =
-        qrJson?.data?.qr ??
-        qrJson?.data?.Qrcode ??
-        qrJson?.data?.QRCode ??
-        "";
-      
-      if (code) {
-        qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
-        log(`✓ QR Code obtido`);
-      } else {
-        log(`Sem QR no retorno. Resposta: ${JSON.stringify(qrJson).substring(0, 200)}`);
-        // Status disconnected + sem QR = socket morreu. Reanima chamando /instance/connect.
-        if (!isConnected) {
-          log(`Reanimando instância via /instance/connect...`);
-          const reconnect = await fetch(`${evogoUrl}/instance/connect`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'apikey': instanceToken },
-            body: JSON.stringify({
-              immediate: true,
-              phone: "",
-              subscribe: ["QRCODE", "CONNECTION", "MESSAGE"],
-              webhookUrl: "",
-            }),
-          });
-          log(`reconnect HTTP ${reconnect.status}`);
-        }
-      }
-    }
-
-    const connection_status = isLoggedIn ? 'connected' : (isConnected ? 'connecting' : 'disconnected');
-
+    const status = result.loggedIn ? 'connected' : (result.connected ? 'connecting' : 'disconnected');
     await supabase.from('fzap_config').update({
-      connection_status,
-      qr_code: isLoggedIn ? null : qrCode,
+      connection_status: status,
+      qr_code: result.loggedIn ? null : result.qrCode,
       updated_at: new Date().toISOString(),
     }).eq('user_id', user.id);
 
     return new Response(JSON.stringify({
       success: true,
-      connected: isLoggedIn,
-      loggedIn: isLoggedIn,
-      qrCode: isLoggedIn ? null : qrCode,
-      status: connection_status,
+      connected: result.loggedIn,
+      loggedIn: result.loggedIn,
+      qrCode: result.loggedIn ? null : result.qrCode,
+      status,
+      driver: slug,
       logs,
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-
   } catch (error: any) {
-    log(`ERROR: ${error.message}`);
     return new Response(JSON.stringify({ success: false, error: error.message, logs }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });

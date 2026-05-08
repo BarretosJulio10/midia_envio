@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import Auth from "./components/Auth";
 import Dashboard from "./pages/Dashboard";
+import AdminDrivers from "./pages/AdminDrivers";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -49,6 +50,7 @@ const App = () => {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={session ? <Dashboard /> : <Auth />} />
+            <Route path="/admin/drivers" element={session ? <AdminDrivers /> : <Auth />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

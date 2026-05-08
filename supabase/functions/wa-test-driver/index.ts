@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { loadActiveDriver } from "../_shared/drivers/index.ts";
+import { getDriver } from "../_shared/drivers/index.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,15 +16,16 @@ Deno.serve(async (req) => {
     const { data: { user } } = await supabase.auth.getUser(jwt);
     if (!user) throw new Error('Não autorizado');
 
-    const { data: config } = await supabase.from('fzap_config').select('token').eq('user_id', user.id).maybeSingle();
-    if (!config?.token) throw new Error('Instância não conectada');
+    const { driver_id } = await req.json();
+    const { data: d } = await supabase.from('api_drivers').select('*').eq('id', driver_id).maybeSingle();
+    if (!d) throw new Error('Driver não encontrado');
 
-    const { driver } = await loadActiveDriver();
-    const groups = await driver.fetchGroups({ token: config.token });
-    return new Response(JSON.stringify({ success: true, groups }),
+    const driver = getDriver(d.slug, { baseUrl: d.base_url, apiKey: d.api_key, config: d.config ?? {} });
+    const result = driver.testConnection ? await driver.testConnection() : { ok: true, message: 'sem testConnection — assumido OK' };
+    return new Response(JSON.stringify({ success: true, ...result }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: any) {
     return new Response(JSON.stringify({ success: false, error: error.message }),
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });
