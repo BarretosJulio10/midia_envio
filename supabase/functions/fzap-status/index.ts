@@ -76,17 +76,20 @@ Deno.serve(async (req: Request) => {
         qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
         log(`✓ QR pronto (len=${qrCode.length})`);
       } else if (!isConnected || qrRes.status >= 500) {
-        // Spec linha 3714/4132: QR expirou ou websocket fechado → reconectar.
-        log(`websocket caído ou QR expirado (status=${qrRes.status}) — chamando /session/connect`);
-        const reconnect = await fetch(`${fzapUrl}/session/connect`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-          body: JSON.stringify({ immediate: true }),
-        }).catch(err => { log(`reconnect err: ${err.message}`); return null; });
-        if (reconnect) log(`/session/connect → ${reconnect.status}`);
-      } else {
-        log(`connected=true, QR vazio — aguardando emissão assíncrona (spec 3711)`);
-      }
+       // Spec: se connected=true mas QRCode está vazio, a sessão está em "starting".
+       // Se connected=false, chamamos connect.
+       if (!isConnected) {
+         log(`WebSocket desconectado (connected=false) — chamando /session/connect`);
+         const reconnect = await fetch(`${fzapUrl}/session/connect`, {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+           body: JSON.stringify({ immediate: true }),
+         }).catch(err => { log(`reconnect err: ${err.message}`); return null; });
+         if (reconnect) log(`/session/connect → ${reconnect.status}`);
+       } else {
+         log(`Aguardando QR ser gerado (connected=true, QRCode="")`);
+       }
+     }
     }
 
     const connection_status = isLoggedIn ? 'connected' : (isConnected ? 'connecting' : 'disconnected');

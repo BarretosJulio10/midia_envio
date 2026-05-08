@@ -90,12 +90,32 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
         setPollingErrors(0);
         setPollingFailed(false);
 
-        // QR code atualizado pode vir no status — atualizar na tela se for válido
-        if (data.qrCode && data.qrCode.length > 50) {
-          setQrCode(data.qrCode);
-        }
-
-        if (data.connected) {
+         // Sucesso no polling (independente de ter QR ou não)
+         errorCountLocal = 0;
+         setPollingErrors(0);
+         setPollingFailed(false);
+ 
+         // Prioridade 1: Login detectado
+         if (data.loggedIn || data.connected === true && !data.qrCode && step === "qrcode") {
+           // Se a API diz connected=true e qrCode sumiu, pode ser que logou.
+           // O fzap-status retorna success:true e connected:true (que mapeia para loggedIn da API fzap)
+           if (data.loggedIn) {
+             clearInterval(interval);
+             setStep("connected");
+             setTimeout(() => {
+               onSaved();
+               onOpenChange(false);
+             }, 2000);
+             return;
+           }
+         }
+ 
+         // Prioridade 2: QR Code atualizado
+         if (data.qrCode && data.qrCode.length > 50) {
+           setQrCode(data.qrCode);
+         }
+ 
+         if (data.loggedIn) {
           clearInterval(interval);
           setStep("connected");
           setTimeout(() => {
