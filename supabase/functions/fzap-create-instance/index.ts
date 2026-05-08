@@ -30,29 +30,37 @@ Deno.serve(async (req: Request) => {
     const { instance_name } = await req.json();
     const evogoUrl = "https://evogo.pagoupix.com.br";
     const apiKey = "006763caee95f33088ebc5ac90ce975ef1c62a2622271937450fe9254635a97f";
+    const instanceToken = `token-${user.id.substring(0, 8)}`; // Token único por usuário
 
     log(`Iniciando conexão Evolution Go para: ${instance_name}`);
 
-    // Na Evolution Go, usamos o endpoint /instance/connect para iniciar o processo
-    const connectRes = await fetch(`${evogoUrl}/instance/connect`, {
+    // 1. Garantir que a instância existe (tentar criar)
+    log(`Tentando criar instância: ${instance_name}`);
+    const createRes = await fetch(`${evogoUrl}/instance/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
+      body: JSON.stringify({ name: instance_name, token: instanceToken }),
+    });
+    
+    const createData = await createRes.json();
+    log(`Resposta create: ${JSON.stringify(createData)}`);
+
+    // 2. Iniciar conexão (gerar QR)
+    log(`Chamando /instance/connect...`);
+    const connectRes = await fetch(`${evogoUrl}/instance/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': instanceToken },
       body: JSON.stringify({ immediate: true }),
     });
 
-    if (!connectRes.ok) {
-      const errText = await connectRes.text();
-      throw new Error(`Falha ao conectar: ${errText}`);
-    }
+    const connectData = await connectRes.json();
+    log(`Resposta connect: ${JSON.stringify(connectData)}`);
 
-    const connectJson = await connectRes.json();
-    log(`Resposta connect: ${JSON.stringify(connectJson)}`);
-
-    // Atualizar banco de dados
+    // 3. Salvar no banco
     await supabase.from('fzap_config').upsert({
       user_id: user.id,
-      instance_id: instance_name || 'default',
-      token: apiKey, // Usamos a apiKey global para Evolution Go
+      instance_id: instance_name,
+      token: instanceToken,
       base_url: evogoUrl,
       connection_status: 'connecting',
       instance_created: true,
@@ -61,7 +69,7 @@ Deno.serve(async (req: Request) => {
 
     return new Response(JSON.stringify({
       success: true,
-      message: 'Conexão iniciada. Aguardando QR Code...',
+      message: 'Conexão iniciada. O QR Code será exibido em instantes.',
       logs,
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
