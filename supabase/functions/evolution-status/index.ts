@@ -95,9 +95,11 @@ Deno.serve(async (req: Request) => {
           code = `data:image/png;base64,${code}`;
         }
         qrCode = code;
-      } else if (!isConnected) {
-        // Sessão caiu — tentar reconectar para forçar emissão do QR
-        console.log('[Master Status] Sessão desconectada, disparando /session/connect');
+      } else {
+        // Sem QR válido — força reconnect para gerar novo QR.
+        // Cobre tanto sessão caída (!isConnected) quanto QR expirado
+        // (connected:true, loggedIn:false, QRCode:"") que ficaria preso para sempre.
+        console.log(`[Master Status] Sem QR (connected=${isConnected}) — disparando /session/connect`);
         await fetch(`${fzapUrl}/session/connect`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'token': instanceToken },
