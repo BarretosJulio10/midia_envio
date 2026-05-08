@@ -154,7 +154,7 @@ Deno.serve(async (req: Request) => {
       let qrJson: any = {}; try { qrJson = JSON.parse(qrText); } catch {}
       // Spec pode usar QRCode (maiúsculo) mas alguns builds usam qrcode/QR
       const code = qrJson?.data?.QRCode ?? qrJson?.data?.qrcode ?? qrJson?.data?.QR ?? qrJson?.data?.qr ?? "";
-      log(`QR ${i+1}/15 HTTP=${qrRes.status} len=${code.length} keys=${Object.keys(qrJson?.data ?? {}).join(',')} raw=${qrText.substring(0, 200)}`);
+      log(`QR ${i+1}/25 HTTP=${qrRes.status} len=${code.length} keys=${Object.keys(qrJson?.data ?? {}).join(',')} raw=${qrText.substring(0, 200)}`);
       if (code && code.length > 50) {
         qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
         log(`✓ QR obtido na tentativa ${i+1}`);
