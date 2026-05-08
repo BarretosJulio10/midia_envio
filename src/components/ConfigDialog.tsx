@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Loader2, CheckCircle, Wifi, RefreshCcw, ArrowLeft, AlertTriangle, QrCode } from "lucide-react";
+import { Loader2, CheckCircle, Wifi, RefreshCcw, ArrowLeft, AlertTriangle, QrCode, PowerOff } from "lucide-react";
 
 interface ConfigDialogProps {
   open: boolean;
@@ -312,7 +312,8 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
       if (error) throw error;
 
       if (data.success) {
-        toast.success(data.message);
+        if (data.connected) toast.success(data.message);
+        else toast.warning(data.message);
       } else {
         toast.warning(data.message);
       }
@@ -320,6 +321,25 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
       toast.error(error.message || 'Erro ao testar conexão');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!confirm('Desconectar o WhatsApp desta instância?')) return;
+    setResetting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('fzap-reset-instance');
+      if (error) throw error;
+      if (data?.success === false) throw new Error(data?.error || 'Falha ao desconectar');
+      toast.success('WhatsApp desconectado.');
+      setStep('form');
+      setQrCode('');
+      setPairingCode('');
+      onSaved();
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao desconectar');
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -412,6 +432,19 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
               >
                 <Wifi className="mr-2 h-4 w-4" />
                 Testar Conexão
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleDisconnect}
+                disabled={loading || resetting}
+              >
+                {resetting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <PowerOff className="mr-2 h-4 w-4" />
+                )}
+                Desconectar
               </Button>
               <Button
                 type="button"

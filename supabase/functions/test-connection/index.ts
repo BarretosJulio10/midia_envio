@@ -1,10 +1,6 @@
-/**
- * Edge Function: test-connection (Fzap v1.23.0)
- * Endpoint Fzap: GET /session/status  (era GET /instance/status)
- * Header: token: <instance_token>
- */
-
+// Test connection for active driver (Evolution Go / Fzap / Evolution API)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { loadActiveDriver } from "../_shared/drivers/index.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,9 +8,7 @@ const corsHeaders = {
 };
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
     const supabase = createClient(
@@ -22,75 +16,43 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) throw new Error('Sem header de autorização');
+    const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '');
+    const { data: { user } } = await supabase.auth.getUser(jwt);
+    if (!user) {
+      return new Response(JSON.stringify({ success: false, message: 'Não autorizado' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
 
-    const jwt = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: userError } = await supabase.auth.getUser(jwt);
-    if (userError || !user) throw new Error('Não autorizado');
-
-    const { data: config, error: configError } = await supabase
+    const { data: config } = await supabase
       .from('fzap_config')
-      .select('instance_id, token, base_url')
+      .select('instance_id, token')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
 
-    if (configError || !config) {
-      return new Response(
-        JSON.stringify({ success: false, message: 'Configure sua instância Fzap primeiro.' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    if (!config?.instance_id || !config?.token) {
+      return new Response(JSON.stringify({
+        success: false,
+        message: 'Configure e conecte sua instância primeiro.',
+      }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    if (!config.token) {
-      return new Response(
-        JSON.stringify({ success: false, message: 'Token da instância não encontrado. Recrie a instância.' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    const { driver, slug } = await loadActiveDriver();
+    const status = await driver.getStatus({ instanceName: config.instance_id, token: config.token });
 
-    const fzapUrl = Deno.env.get('FZAP_API_URL') ?? config.base_url;
-    if (!fzapUrl) throw new Error('URL da Fzap não configurada nos Secrets');
-
-    console.log(`[test-connection] Testando conexão: ${config.instance_id}`);
-
-    // GET /session/status (era GET /instance/status)
-    const res = await fetch(`${fzapUrl}/session/status`, {
-      method: 'GET',
-      headers: { 'token': config.token, 'Content-Type': 'application/json' },
-    });
-
-    const body = await res.text();
-    console.log(`[test-connection] Resposta: ${res.status} ${body.substring(0, 200)}`);
-
-    if (!res.ok) {
-      return new Response(
-        JSON.stringify({ success: false, message: `Instância não encontrada ou token inválido (${res.status})` }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const data = JSON.parse(body);
-    // Fzap: loggedIn = WhatsApp autenticado
-    const isConnected = data.data?.loggedIn === true;
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        connected: isConnected,
-        message: isConnected
-          ? '✅ WhatsApp conectado e funcionando!'
-          : '⚠️ Instância encontrada, mas desconectada. Escaneie o QR Code.',
-        data: data.data,
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    const ok = status.loggedIn === true;
+    return new Response(JSON.stringify({
+      success: true,
+      connected: ok,
+      driver: slug,
+      message: ok
+        ? `✅ Conectado via ${slug} (loggedIn=true)`
+        : `⚠️ Instância existe (${slug}) mas não autenticada. Escaneie o QR.`,
+      logs: status.logs ?? [],
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
-    console.error('[test-connection] Erro:', error.message);
-    return new Response(
-      JSON.stringify({ success: false, message: error.message }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    console.error('[test-connection]', error);
+    return new Response(JSON.stringify({ success: false, message: error.message }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });
