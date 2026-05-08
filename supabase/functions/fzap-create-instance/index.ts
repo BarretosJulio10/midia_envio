@@ -1,13 +1,3 @@
-/**
- * Edge Function: fzap-create-instance
- * Spec Fzap v1.23.0 — fluxo oficial:
- *  1. GET  /admin/users           → Authorization: <ADMIN_TOKEN>   (lookup por nome; retorna id+token)
- *  2. POST /admin/users           → cria se não existir            (resposta inclui id e token COMPLETO)
- *  3. POST /session/connect       → token: <USER_TOKEN>, body {immediate:true}
- *  4. GET  /session/qr (polling)  → token: <USER_TOKEN>, lê data.QRCode (já vem "data:image/png;base64,...")
- *  Redeploy tag: v2
- */
-
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -38,163 +28,44 @@ Deno.serve(async (req: Request) => {
     if (userError || !user) throw new Error('Não autorizado');
 
     const { instance_name } = await req.json();
-    if (!instance_name) throw new Error('Nome da instância é obrigatório');
+    const evogoUrl = "https://evogo.pagoupix.com.br";
+    const apiKey = "006763caee95f33088ebc5ac90ce975ef1c62a2622271937450fe9254635a97f";
 
-    const fzapUrl = (Deno.env.get('FZAP_API_URL') ?? '').replace(/\/$/, '');
-    const adminToken = Deno.env.get('FZAP_ADMIN_TOKEN');
-    if (!fzapUrl || !adminToken) {
-      throw new Error('FZAP_API_URL ou FZAP_ADMIN_TOKEN não configurados');
-    }
-     log(`Início: instance_name=${instance_name} fzapUrl=${fzapUrl} adminToken_len=${adminToken?.length || 0}`);
- 
-     // Normalização do token (remover 'Bearer ' se existir no segredo, mas o spec diz que é token direto)
-     const finalAdminToken = adminToken.trim();
+    log(`Iniciando conexão Evolution Go para: ${instance_name}`);
 
-    // ============================================================
-    // 1. RESOLVER USER → tentar achar; se não houver, criar.
-    // Spec: GET /admin/users retorna data: [{ id, name, token, ... }]
-    // ============================================================
-    let instanceToken = "";
-    let instanceId = "";
-
-    const listRes = await fetch(`${fzapUrl}/admin/users`, {
-      method: 'GET',
-      headers: { 'Authorization': finalAdminToken },
+    // Na Evolution Go, usamos o endpoint /instance/connect para iniciar o processo
+    const connectRes = await fetch(`${evogoUrl}/instance/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
+      body: JSON.stringify({ immediate: true }),
     });
-    const listText = await listRes.text();
-    const listStatus = listRes.status;
-    log(`GET /admin/users → ${listStatus} (${listText.length} bytes) sample=${listText.substring(0,200)}`);
 
-    let listData: any = {};
-    try { listData = JSON.parse(listText); } catch {}
-
-    const users = Array.isArray(listData?.data) ? listData.data : [];
-    const existing = users.find((u: any) => u?.name === instance_name);
-
-    if (existing && existing.token && existing.token.length > 4) {
-      instanceToken = existing.token;
-      instanceId = existing.id ?? "";
-      log(`User existente: id=${instanceId} token_len=${instanceToken.length}`);
-    } else {
-      // Não existe → criar conforme spec POST /admin/users
-      const newToken = Math.random().toString(36).substring(2, 14).toUpperCase() +
-                       Math.random().toString(36).substring(2, 10).toUpperCase();
-      log(`Criando novo user: name=${instance_name}`);
-      const createRes = await fetch(`${fzapUrl}/admin/users`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': finalAdminToken },
-        body: JSON.stringify({ name: instance_name, token: newToken }),
-      });
-      const createText = await createRes.text();
-      const createStatus = createRes.status;
-      log(`POST /admin/users → ${createRes.status}: ${createText.substring(0, 400)}`);
-
-      if (!createRes.ok) {
-        throw new Error(`Falha ao criar user na Fzap (${createRes.status}): ${createText.substring(0, 200)}`);
-      }
-      const createData = JSON.parse(createText);
-      instanceToken = createData?.data?.token ?? newToken;
-      instanceId = createData?.data?.id ?? "";
-      log(`User criado: id=${instanceId} token_len=${instanceToken.length}`);
+    if (!connectRes.ok) {
+      const errText = await connectRes.text();
+      throw new Error(`Falha ao conectar: ${errText}`);
     }
 
-    if (!instanceToken || instanceToken.length < 5) {
-      throw new Error(`Token da instância inválido (len=${instanceToken.length})`);
-    }
+    const connectJson = await connectRes.json();
+    log(`Resposta connect: ${JSON.stringify(connectJson)}`);
 
-    // ============================================================
-    // 2. STATUS — decidir se precisa logout e/ou connect
-    // ============================================================
-    const statusRes = await fetch(`${fzapUrl}/session/status`, {
-      headers: { 'token': instanceToken },
-    });
-    const statusText = await statusRes.text();
-    let statusJson: any = {}; try { statusJson = JSON.parse(statusText); } catch {}
-    const alreadyLoggedIn = statusJson?.data?.loggedIn === true;
-    const alreadyConnected = statusJson?.data?.connected === true;
-    log(`/session/status → ${statusRes.status} loggedIn=${alreadyLoggedIn} connected=${alreadyConnected} raw=${statusText.substring(0,250)}`);
-
-    if (alreadyLoggedIn) {
-      log(`Forçando logout para regenerar QR (spec 4127: QR só é emitido com loggedIn=false)`);
-      const lo = await fetch(`${fzapUrl}/session/logout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-      }).catch((e) => { log(`logout err: ${e.message}`); return null; });
-      if (lo) log(`/session/logout → ${lo.status}`);
-      // whatsmeow precisa de janela de ~3s para fechar o socket antes do reconnect (spec 3826)
-      await new Promise(r => setTimeout(r, 3000));
-    }
-
-    // ============================================================
-    // 3. POST /session/connect — só se ainda não há websocket ativo.
-    // Spec linha 3714: chamar connect com socket já ativo RESETA o ciclo de QR.
-    // ============================================================
-    if (alreadyConnected && !alreadyLoggedIn) {
-      log(`connected=true loggedIn=false → socket já ativo emitindo QR; pulando /session/connect`);
-    } else {
-      log(`POST /session/connect (immediate:true)`);
-      const connectRes = await fetch(`${fzapUrl}/session/connect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-        body: JSON.stringify({ immediate: true }),
-      });
-      const connectText = await connectRes.text();
-      log(`/session/connect ${connectRes.status} ct=${connectRes.headers.get('content-type') ?? '-'} body=${connectText.substring(0, 400)}`);
-      if (!connectRes.ok) {
-        throw new Error(`Falha em /session/connect (${connectRes.status}): ${connectText.substring(0, 200)}`);
-      }
-    }
-
-    // ============================================================
-    // 4. PRIMEIRA TENTATIVA RÁPIDA do /session/qr (até ~6s).
-    // Spec (linhas 3711-3712): QR é assíncrono e pode vir vazio nas 1ª chamadas.
-    // Não bloqueamos a request até 50s — quem faz o polling longo é o FRONTEND
-    // chamando fzap-status a cada 3s. Aqui só tentamos pegar adiantado
-    // pra entregar o QR já no abrir do modal quando possível.
-    let qrCode = "";
-    for (let i = 0; i < 3; i++) {
-      await new Promise(r => setTimeout(r, 2000));
-      const qrRes = await fetch(`${fzapUrl}/session/qr`, {
-        headers: { 'token': instanceToken, 'Cache-Control': 'no-cache' },
-      });
-      const qrText = await qrRes.text();
-      let qrJson: any = {}; try { qrJson = JSON.parse(qrText); } catch {}
-      // Spec linha 4122: campo é estritamente `data.QRCode`. Sem fallbacks.
-      const code = qrJson?.data?.QRCode ?? "";
-      log(`QR fast ${i+1}/3 HTTP=${qrRes.status} ct=${qrRes.headers.get('content-type') ?? '-'} QRCode_len=${code.length} body=${qrText.substring(0, 200)}`);
-      if (code && code.length > 50) {
-        qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
-        log(`✓ QR adiantado na tentativa ${i+1}`);
-        break;
-      }
-    }
-    if (!qrCode) log(`QR ainda não emitido — frontend continuará polling em /session/qr via fzap-status`);
-
-    // ============================================================
-    // 5. SALVAR NO BANCO
-    // ============================================================
+    // Atualizar banco de dados
     await supabase.from('fzap_config').upsert({
       user_id: user.id,
-      instance_id: instance_name,
-      token: instanceToken,
-      base_url: fzapUrl,
+      instance_id: instance_name || 'default',
+      token: apiKey, // Usamos a apiKey global para Evolution Go
+      base_url: evogoUrl,
       connection_status: 'connecting',
-      qr_code: qrCode,
       instance_created: true,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id' });
 
     return new Response(JSON.stringify({
       success: true,
-      message: qrCode ? 'QR Code gerado!' : 'Instância criada. Aguardando QR Code (polling do front)...',
-      qrCode,
-      instance_id: instance_name,
-      token_len: instanceToken.length,
+      message: 'Conexão iniciada. Aguardando QR Code...',
       logs,
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
-    console.error('[Fzap Error]:', error.message);
     log(`ERROR: ${error.message}`);
     return new Response(JSON.stringify({ success: false, error: error.message, logs }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });

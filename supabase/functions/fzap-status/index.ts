@@ -1,12 +1,3 @@
-/**
- * Edge Function: fzap-status
- * Spec Fzap v1.23.0:
- *   GET /session/status → data.loggedIn / data.connected
- *   GET /session/qr     → data.QRCode (string completa "data:image/png;base64,...")
- * Se loggedIn=false e QRCode vazio, dispara POST /session/connect para reabrir o socket.
- * Redeploy tag: v2
- */
-
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -43,54 +34,41 @@ Deno.serve(async (req: Request) => {
       .single();
     if (!config) throw new Error('Configuração não encontrada');
 
-    const fzapUrl = (Deno.env.get('FZAP_API_URL') ?? config.base_url ?? '').replace(/\/$/, '');
-    const instanceToken = config.token;
-    if (!fzapUrl || !instanceToken) {
-      throw new Error('Configurações de API incompletas (URL/Token)');
-    }
-    log(`token_len=${instanceToken.length} fzapUrl=${fzapUrl}`);
+    const evogoUrl = "https://evogo.pagoupix.com.br";
+    const apiKey = "006763caee95f33088ebc5ac90ce975ef1c62a2622271937450fe9254635a97f";
+    
+    log(`Verificando status na Evolution Go...`);
 
     // 1. Status
-    const statusRes = await fetch(`${fzapUrl}/session/status`, {
-      headers: { 'token': instanceToken, 'Cache-Control': 'no-cache' },
+    const statusRes = await fetch(`${evogoUrl}/instance/status`, {
+      headers: { 'apikey': apiKey, 'Cache-Control': 'no-cache' },
     });
-    const statusText = await statusRes.text();
-    let statusJson: any = {}; try { statusJson = JSON.parse(statusText); } catch {}
+    const statusJson = await statusRes.json();
     const isLoggedIn  = statusJson?.data?.loggedIn === true;
     const isConnected = statusJson?.data?.connected === true;
-    log(`/session/status ${statusRes.status} ct=${statusRes.headers.get('content-type') ?? '-'} loggedIn=${isLoggedIn} connected=${isConnected} body=${statusText.substring(0, 250)}`);
+    log(`Status: loggedIn=${isLoggedIn} connected=${isConnected}`);
 
     let qrCode = config.qr_code ?? "";
 
-    // 2. QR (somente se ainda não logado)
+    // 2. QR Code (se não logado)
     if (!isLoggedIn) {
-      const qrRes = await fetch(`${fzapUrl}/session/qr`, {
-        headers: { 'token': instanceToken, 'Cache-Control': 'no-cache' },
+      const qrRes = await fetch(`${evogoUrl}/instance/qr`, {
+        headers: { 'apikey': apiKey, 'Cache-Control': 'no-cache' },
       });
-      const qrText = await qrRes.text();
-      let qrJson: any = {}; try { qrJson = JSON.parse(qrText); } catch {}
-      // Spec linha 4122: campo é estritamente `data.QRCode` (case-sensitive). Sem fallbacks.
-      const code = qrJson?.data?.QRCode ?? "";
-      log(`/session/qr ${qrRes.status} ct=${qrRes.headers.get('content-type') ?? '-'} QRCode_len=${code.length} body=${qrText.substring(0, 200)}`);
-
-      if (code && code.length > 50) {
+      const qrJson = await qrRes.json();
+      const code = qrJson?.data?.qr ?? "";
+      
+      if (code) {
         qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
-        log(`✓ QR pronto (len=${qrCode.length})`);
-      } else if (!isConnected || qrRes.status >= 500) {
-       // Spec: se connected=true mas QRCode está vazio, a sessão está em "starting".
-       // Se connected=false, chamamos connect.
-       if (!isConnected) {
-         log(`WebSocket desconectado (connected=false) — chamando /session/connect`);
-         const reconnect = await fetch(`${fzapUrl}/session/connect`, {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-           body: JSON.stringify({ immediate: true }),
-         }).catch(err => { log(`reconnect err: ${err.message}`); return null; });
-         if (reconnect) log(`/session/connect → ${reconnect.status}`);
-       } else {
-         log(`Aguardando QR ser gerado (connected=true, QRCode="")`);
-       }
-     }
+        log(`✓ QR Code obtido`);
+      } else if (!isConnected) {
+        log(`Instância desconectada, tentando reconectar...`);
+        await fetch(`${evogoUrl}/instance/connect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
+          body: JSON.stringify({ immediate: true }),
+        });
+      }
     }
 
     const connection_status = isLoggedIn ? 'connected' : (isConnected ? 'connecting' : 'disconnected');
