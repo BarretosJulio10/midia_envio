@@ -23,3 +23,6 @@ verify_jwt = true
 
 [functions.fzap-reset-instance]
 verify_jwt = true
+[functions.fzap-ping]
+verify_jwt = false
+
