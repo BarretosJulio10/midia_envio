@@ -12,7 +12,7 @@ O sistema utiliza Supabase (Edge Functions + Database + Storage) e projeto atual
 3. **ENDPOINTS CRÍTICOS (Fzap v1.23.0):**
    - `POST /admin/users`: Requer `Authorization: <ADMIN_TOKEN>`. Cria a instância e retorna o `token` de sessão no body.
    - `POST /session/connect`: Requer `token: <session_token>`. Inicia a conexão websocket.
-   - `GET /session/qr`: Requer `token`. Obtém o QR Code em Base64 (assíncrono, pode requerer polling).
+    - `GET /session/qr`: Requer `token`. Obtém o QR Code em Base64 (campo: `data.qrCode`).
    - `GET /session/status`: Requer `token`. Verifica status (logado = `data.loggedIn === true`).
    - `POST /session/disconnect` e `POST /session/reset`: Usados para encerrar e resetar sessões ativas.
    - Envios de mídia usam endpoints separados (`/chat/send/image`, `/chat/send/video`, etc.) passando propriedades tipadas (ex: `phone`, `caption`, `image`).

@@ -77,12 +77,14 @@ Deno.serve(async (req: Request) => {
       let qrData: any = {};
       try { qrData = JSON.parse(qrText); } catch { /* ignore */ }
 
-      // Aceita múltiplos formatos defensivamente (Fzap padrão é data.QRCode)
+      // Aceita múltiplos formatos defensivamente (Fzap real é data.qrCode)
       let code = 
+        qrData?.data?.qrCode ?? 
         qrData?.data?.QRCode ?? 
         qrData?.data?.qrcode ?? 
         qrData?.data?.qr ?? 
         qrData?.data?.base64 ?? 
+        qrData?.qrCode ?? 
         qrData?.QRCode ?? 
         "";
 

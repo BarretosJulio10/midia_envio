@@ -111,9 +111,9 @@ Deno.serve(async (req: Request) => {
       }).catch(() => {});
     }
 
-    // 3. POLLING INTERNO PARA CAPTURAR PRIMEIRO QR CODE
-    // Conforme Spec: Poll GET /session/qr até data.QRCode ser não-vazio.
-    // Tentativa robusta para múltiplos formatos de resposta (QRCode, qrcode, qr, base64).
+    // 4. POLLING INTERNO PARA CAPTURAR PRIMEIRO QR CODE
+    // Conforme Realidade Fzap: O campo retornado é 'qrCode' (camelCase).
+    // Tentativa robusta para múltiplos formatos de resposta.
     let qrCode = "";
     console.log(`[Master] Buscando primeiro QR Code (polling estendido)...`);
     
@@ -133,12 +133,14 @@ Deno.serve(async (req: Request) => {
         let qrData: any = {};
         try { qrData = JSON.parse(qrText); } catch { /* keep empty */ }
 
-        // Fzap padrão: data.QRCode (uppercase Q,R,C). Fallbacks defensivos:
+        // Fzap padrão real: data.qrCode. Fallbacks defensivos:
         let code = 
+          qrData?.data?.qrCode ?? 
           qrData?.data?.QRCode ?? 
           qrData?.data?.qrcode ?? 
           qrData?.data?.qr ?? 
           qrData?.data?.base64 ??
+          qrData?.qrCode ?? 
           qrData?.QRCode ?? 
           qrData?.qrcode ?? 
           "";
