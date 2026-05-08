@@ -77,18 +77,18 @@ Deno.serve(async (req: Request) => {
       let qrData: any = {};
       try { qrData = JSON.parse(qrText); } catch { /* ignore */ }
 
-      // Aceita múltiplos formatos defensivamente (Fzap real é data.qrCode)
+      // Spec oficial Fzap v1.23.0: data.QRCode (uppercase). Fallbacks defensivos.
       let code = 
-        qrData?.data?.qrCode ?? 
         qrData?.data?.QRCode ?? 
+        qrData?.data?.qrCode ?? 
         qrData?.data?.qrcode ?? 
         qrData?.data?.qr ?? 
         qrData?.data?.base64 ?? 
-        qrData?.qrCode ?? 
         qrData?.QRCode ?? 
+        qrData?.qrCode ?? 
         "";
 
-      console.log(`[Master Status] /session/qr ${qrRes.status} | code len=${code?.length || 0}`);
+      console.log(`[Master Status] /session/qr ${qrRes.status} | code len=${code?.length || 0} | raw=${qrText.substring(0, 200)}`);
 
       if (code && code.length > 50) {
         if (!code.startsWith('data:image')) {
@@ -101,7 +101,7 @@ Deno.serve(async (req: Request) => {
         await fetch(`${fzapUrl}/session/connect`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-          body: JSON.stringify({ immediate: true }),
+          body: JSON.stringify({}),
         }).catch(err => console.warn('[Master Status] reconnect err:', err));
       }
     }
