@@ -28,6 +28,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
   const [instanceName, setInstanceName] = useState("");
   const [pollingErrors, setPollingErrors] = useState(0);
   const [pollingFailed, setPollingFailed] = useState(false);
+  const [serverLogs, setServerLogs] = useState<string[]>([]);
   const [config, setConfig] = useState({
     delay_min: 8000,
     delay_max: 12000,
@@ -152,11 +153,17 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
 
       setQrCode(data.qrCode || "");
       setPairingCode(data.pairingCode || "");
+      setServerLogs(Array.isArray(data.logs) ? data.logs : []);
+      console.group('[Fzap create-instance LOGS]');
+      (data.logs || []).forEach((l: string) => console.log(l));
+      console.groupEnd();
       setStep("qrcode");
 
       toast.success(data.message || "QR Code gerado! Escaneie com seu WhatsApp.");
     } catch (error: any) {
       console.error('[ConfigDialog] Create instance error:', error);
+      const anyErr: any = error;
+      if (anyErr?.context?.logs) setServerLogs(anyErr.context.logs);
       toast.error(error.message || 'Erro ao criar instância. Tente novamente.');
     } finally {
       setLoading(false);
