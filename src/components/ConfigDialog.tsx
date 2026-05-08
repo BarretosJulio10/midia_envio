@@ -407,7 +407,7 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
                 Aguardando conexão...
                 {pollingErrors > 0 && (
                   <span className="text-amber-500 text-xs">
-                    ({pollingErrors}/{5} erros)
+                    ({pollingErrors}/10 erros)
                   </span>
                 )}
               </div>
@@ -419,20 +419,18 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
                 type="button"
                 variant="outline"
                 className="flex-1"
-                onClick={handleReset}
+                onClick={() => {
+                  // Voltar apenas fecha a tela do QR sem destruir a instância na Fzap.
+                  setStep("form");
+                  setQrCode("");
+                  setPairingCode("");
+                  setPollingErrors(0);
+                  setPollingFailed(false);
+                }}
                 disabled={resetting}
               >
-                {resetting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Limpando...
-                  </>
-                ) : (
-                  <>
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    Voltar
-                  </>
-                )}
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Voltar
               </Button>
               <Button
                 type="button"
