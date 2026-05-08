@@ -1,7 +1,10 @@
-
 /**
- * Edge Function: evolution-create-instance (Master Fullstack Edition)
- * Fluxo: Admin Create -> Session Connect -> QR Polling -> DB Upsert
+ * Edge Function: evolution-create-instance
+ * Spec Fzap v1.23.0 — fluxo oficial:
+ *  1. GET  /admin/users           → Authorization: <ADMIN_TOKEN>   (lookup por nome; retorna id+token)
+ *  2. POST /admin/users           → cria se não existir            (resposta inclui id e token COMPLETO)
+ *  3. POST /session/connect       → token: <USER_TOKEN>, body {immediate:true}
+ *  4. GET  /session/qr (polling)  → token: <USER_TOKEN>, lê data.QRCode (já vem "data:image/png;base64,...")
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -12,9 +15,7 @@ const corsHeaders = {
 };
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
     const supabase = createClient(
@@ -24,7 +25,6 @@ Deno.serve(async (req: Request) => {
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('Sem header de autorização');
-
     const jwt = authHeader.replace('Bearer ', '');
     const { data: { user }, error: userError } = await supabase.auth.getUser(jwt);
     if (userError || !user) throw new Error('Não autorizado');
@@ -32,140 +32,122 @@ Deno.serve(async (req: Request) => {
     const { instance_name } = await req.json();
     if (!instance_name) throw new Error('Nome da instância é obrigatório');
 
-    const fzapUrl = Deno.env.get('EVOLUTION_API_URL');
+    const fzapUrl = (Deno.env.get('EVOLUTION_API_URL') ?? '').replace(/\/$/, '');
     const adminToken = Deno.env.get('global_apikay');
-
     if (!fzapUrl || !adminToken) {
       throw new Error('EVOLUTION_API_URL ou global_apikay não configurados');
     }
 
-    // 1. CRIAR INSTÂNCIA (ADMIN) — reaproveita user existente se já houver
+    // ============================================================
+    // 1. RESOLVER USER → tentar achar; se não houver, criar.
+    // Spec: GET /admin/users retorna data: [{ id, name, token, ... }]
+    // ============================================================
     let instanceToken = "";
-    const generatedToken = Math.random().toString(36).substring(2, 14).toUpperCase();
+    let instanceId = "";
 
-    // Verifica se o user já existe pelo nome
     const listRes = await fetch(`${fzapUrl}/admin/users`, {
       method: 'GET',
       headers: { 'Authorization': adminToken },
     });
-    // Para garantir que temos um token válido e completo, vamos deletar o user se existir e criar um novo.
-    // O endpoint /admin/users da Fzap muitas vezes retorna tokens mascarados (e.g. "abc***").
-    console.log(`[Master] Forçando recriação de usuário para garantir token íntegro: ${instance_name}`);
-    
-    // Tenta deletar se existir (ignora erro se não existir)
-    await fetch(`${fzapUrl}/admin/users/${instance_name}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': adminToken },
-    }).catch(() => {});
+    const listText = await listRes.text();
+    console.log(`[Fzap] GET /admin/users → ${listRes.status} (${listText.length} bytes)`);
 
-    // Criar novo usuário com o token gerado
-    const createRes = await fetch(`${fzapUrl}/admin/users`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': adminToken },
-      body: JSON.stringify({ name: instance_name, token: generatedToken }),
-    });
-    
-    const createData = await createRes.json().catch(() => ({}));
-    console.log(`[Master] Resposta Create:`, JSON.stringify(createData));
-    
-    if (!createRes.ok) {
-      // Se falhar o create (ex: user ainda existe), tentamos usar o generatedToken como fallback
-      console.warn(`[Master] Falha ao criar user, usando token gerado como fallback`);
-      instanceToken = generatedToken;
+    let listData: any = {};
+    try { listData = JSON.parse(listText); } catch {}
+
+    const users = Array.isArray(listData?.data) ? listData.data : [];
+    const existing = users.find((u: any) => u?.name === instance_name);
+
+    if (existing && existing.token && existing.token.length > 4) {
+      instanceToken = existing.token;
+      instanceId = existing.id ?? "";
+      console.log(`[Fzap] User existente encontrado: id=${instanceId} token_len=${instanceToken.length}`);
     } else {
-      instanceToken = createData.data?.token ?? generatedToken;
-    }
-    
-    console.log(`[Master] Token definido (len=${instanceToken.length})`);
+      // Não existe → criar conforme spec POST /admin/users
+      const newToken = Math.random().toString(36).substring(2, 14).toUpperCase() +
+                       Math.random().toString(36).substring(2, 8).toUpperCase();
+      console.log(`[Fzap] Criando novo user: name=${instance_name}`);
+      const createRes = await fetch(`${fzapUrl}/admin/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': adminToken },
+        body: JSON.stringify({ name: instance_name, token: newToken }),
+      });
+      const createText = await createRes.text();
+      console.log(`[Fzap] POST /admin/users → ${createRes.status}: ${createText.substring(0, 300)}`);
 
-    // 2. CHECAR STATUS — se já logado, força LOGOUT para gerar novo QR
-    const preStatusRes = await fetch(`${fzapUrl}/session/status`, {
-      method: 'GET', headers: { 'token': instanceToken }
-    });
-    if (preStatusRes.ok) {
-      const pre = await preStatusRes.json().catch(() => ({}));
-      console.log(`[Master] Pre-status:`, JSON.stringify(pre?.data || pre));
-      if (pre?.data?.loggedIn === true) {
-        console.log('[Master] Instância já logada — forçando LOGOUT para gerar novo QR');
-        await fetch(`${fzapUrl}/session/logout`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-        }).catch(() => {});
+      if (!createRes.ok) {
+        throw new Error(`Falha ao criar user na Fzap (${createRes.status}): ${createText.substring(0, 200)}`);
       }
+      const createData = JSON.parse(createText);
+      instanceToken = createData?.data?.token ?? newToken;
+      instanceId = createData?.data?.id ?? "";
+      console.log(`[Fzap] User criado: id=${instanceId} token_len=${instanceToken.length}`);
     }
 
-    // 3. INICIAR SESSÃO (CONNECT) — immediate:true retorna rápido; QR é assíncrono
-    console.log(`[Master] Iniciando sessão para: ${instance_name}`);
+    if (!instanceToken || instanceToken.length < 5) {
+      throw new Error(`Token da instância inválido (len=${instanceToken.length})`);
+    }
+
+    // ============================================================
+    // 2. SE JÁ ESTIVER LOGADO, FORÇAR LOGOUT (para gerar novo QR)
+    // ============================================================
+    const statusRes = await fetch(`${fzapUrl}/session/status`, {
+      headers: { 'token': instanceToken },
+    });
+    const statusText = await statusRes.text();
+    let statusJson: any = {}; try { statusJson = JSON.parse(statusText); } catch {}
+    const alreadyLoggedIn = statusJson?.data?.loggedIn === true;
+    console.log(`[Fzap] Status pré-connect: ${statusRes.status} loggedIn=${alreadyLoggedIn} raw=${statusText.substring(0,200)}`);
+
+    if (alreadyLoggedIn) {
+      console.log(`[Fzap] Forçando logout para regenerar QR`);
+      await fetch(`${fzapUrl}/session/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+      }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    // ============================================================
+    // 3. POST /session/connect — spec exige body com immediate
+    // ============================================================
+    console.log(`[Fzap] POST /session/connect`);
     const connectRes = await fetch(`${fzapUrl}/session/connect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ immediate: true }),
     });
-    const connectData = await connectRes.json().catch(() => ({}));
-    console.log(`[Master] Resposta Connect (${connectRes.status}):`, JSON.stringify(connectData));
+    const connectText = await connectRes.text();
+    console.log(`[Fzap] /session/connect → ${connectRes.status}: ${connectText.substring(0, 400)}`);
 
-    // Se já logado pelo connect (sessão antiga reusada), força logout + novo connect
-    if (connectData?.data?.loggedIn === true) {
-      console.log('[Master] Connect retornou loggedIn — logout + reconnect');
-      await fetch(`${fzapUrl}/session/logout`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-      }).catch(() => {});
-      await new Promise(r => setTimeout(r, 1500));
-      await fetch(`${fzapUrl}/session/connect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-        body: JSON.stringify({}),
-      }).catch(() => {});
+    if (!connectRes.ok) {
+      throw new Error(`Falha em /session/connect (${connectRes.status}): ${connectText.substring(0, 200)}`);
     }
 
-    // 4. POLLING DO QR CODE conforme spec oficial Fzap v1.23.0
-    // Spec: GET /session/qr → data.QRCode (uppercase Q,R,C) já vem como
-    // string completa "data:image/png;base64,..." pronta para <img src=...>.
-    // Polling: 15 tentativas × 2s = 30s. QR é assíncrono após /connect.
+    // ============================================================
+    // 4. POLLING /session/qr → data.QRCode (spec oficial)
+    // QR é assíncrono. Polling generoso: 20 × 2s = 40s.
+    // ============================================================
     let qrCode = "";
-    console.log(`[Master] Iniciando polling QR (token=${instanceToken.substring(0,4)}***, url=${fzapUrl}/session/qr)`);
-
-    for (let i = 0; i < 15; i++) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 2000));
       const qrRes = await fetch(`${fzapUrl}/session/qr`, {
-        method: 'GET',
         headers: { 'token': instanceToken },
       });
-
-      const qrText = await qrRes.text().catch(() => "");
-      let qrData: any = {};
-      try { qrData = JSON.parse(qrText); } catch { /* ignore parse */ }
-
-      // Spec oficial: data.QRCode. Fallbacks defensivos para variações.
-      let code =
-        qrData?.data?.QRCode ??
-        qrData?.data?.qrCode ??
-        qrData?.data?.qrcode ??
-        qrData?.data?.qr ??
-        qrData?.QRCode ??
-        qrData?.qrCode ??
-        "";
-
-      const sessionStatus = qrData?.data?.sessionStatus ?? qrData?.data?.status ?? "?";
-      // SEMPRE logar o raw (primeiros 300 chars) — sem isso é impossível
-      // diagnosticar quando o QR vem vazio com HTTP 200.
-      console.log(`[Master] QR ${i+1}/15 HTTP=${qrRes.status} status=${sessionStatus} len=${code?.length || 0} raw=${qrText.substring(0, 300)}`);
-
+      const qrText = await qrRes.text();
+      let qrJson: any = {}; try { qrJson = JSON.parse(qrText); } catch {}
+      const code = qrJson?.data?.QRCode ?? "";
+      console.log(`[Fzap] QR ${i+1}/20 HTTP=${qrRes.status} len=${code.length} raw=${qrText.substring(0, 150)}`);
       if (code && code.length > 50) {
-        if (!code.startsWith('data:image')) {
-          code = `data:image/png;base64,${code}`;
-        }
-        qrCode = code;
-        console.log(`[Master] QR Code obtido na tentativa ${i+1}`);
+        qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
+        console.log(`[Fzap] ✓ QR obtido na tentativa ${i+1}`);
         break;
       }
     }
 
-    if (!qrCode) {
-      console.error('[Master] QR Code não obtido após 15 tentativas (30s)');
-    }
-
-    // 5. SALVAR NO BANCO — onConflict obrigatório para evitar duplicatas
+    // ============================================================
+    // 5. SALVAR NO BANCO
+    // ============================================================
     await supabase.from('evolution_config').upsert({
       user_id: user.id,
       instance_id: instance_name,
@@ -174,24 +156,20 @@ Deno.serve(async (req: Request) => {
       connection_status: 'connecting',
       qr_code: qrCode,
       instance_created: true,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id' });
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        message: qrCode ? 'Instância pronta!' : 'Instância criada. Aguardando QR Code...',
-        qrCode: qrCode,
-        instance_id: instance_name
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({
+      success: true,
+      message: qrCode ? 'QR Code gerado!' : 'Instância criada. Aguardando QR Code (polling do front)...',
+      qrCode,
+      instance_id: instance_name,
+      token_len: instanceToken.length,
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
-    console.error('[Master Error]:', error.message);
-    return new Response(
-      JSON.stringify({ success: false, error: error.message }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    console.error('[Fzap Error]:', error.message);
+    return new Response(JSON.stringify({ success: false, error: error.message }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });

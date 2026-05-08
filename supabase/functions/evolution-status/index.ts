@@ -1,7 +1,9 @@
-
 /**
- * Edge Function: evolution-status (Master Fullstack Edition)
- * Fluxo: Status Check -> QR Polling (if not logged in) -> DB Update
+ * Edge Function: evolution-status
+ * Spec Fzap v1.23.0:
+ *   GET /session/status → data.loggedIn / data.connected
+ *   GET /session/qr     → data.QRCode (string completa "data:image/png;base64,...")
+ * Se loggedIn=false e QRCode vazio, dispara POST /session/connect para reabrir o socket.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -12,9 +14,7 @@ const corsHeaders = {
 };
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
     const supabase = createClient(
@@ -24,115 +24,77 @@ Deno.serve(async (req: Request) => {
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('Sem header de autorização');
-
     const jwt = authHeader.replace('Bearer ', '');
     const { data: { user }, error: userError } = await supabase.auth.getUser(jwt);
     if (userError || !user) throw new Error('Não autorizado');
 
-    const { data: config, error: configError } = await supabase
+    const { data: config } = await supabase
       .from('evolution_config')
       .select('*')
       .eq('user_id', user.id)
       .single();
+    if (!config) throw new Error('Configuração não encontrada');
 
-    if (configError || !config) throw new Error('Configuração não encontrada');
-
-    const fzapUrl = Deno.env.get('EVOLUTION_API_URL') ?? config.base_url;
-    const adminToken = Deno.env.get('global_apikay');
+    const fzapUrl = (Deno.env.get('EVOLUTION_API_URL') ?? config.base_url ?? '').replace(/\/$/, '');
     const instanceToken = config.token;
-
-    if (!fzapUrl || !adminToken || !instanceToken) {
+    if (!fzapUrl || !instanceToken) {
       throw new Error('Configurações de API incompletas (URL/Token)');
     }
 
-    // 1. CHECAR STATUS DA SESSÃO
-    // Conforme Spec: GET /session/status com header token: <session_token>
+    // 1. Status
     const statusRes = await fetch(`${fzapUrl}/session/status`, {
-      method: 'GET',
-      headers: {
-        'token': instanceToken
-      }
+      headers: { 'token': instanceToken },
     });
+    const statusText = await statusRes.text();
+    let statusJson: any = {}; try { statusJson = JSON.parse(statusText); } catch {}
+    const isLoggedIn  = statusJson?.data?.loggedIn === true;
+    const isConnected = statusJson?.data?.connected === true;
+    console.log(`[Fzap Status] ${statusRes.status} loggedIn=${isLoggedIn} connected=${isConnected}`);
 
-    const statusData = await statusRes.json();
-    console.log(`[Master Status] Resposta Status:`, JSON.stringify(statusData));
+    let qrCode = config.qr_code ?? "";
 
-    const isLoggedIn = statusData.data?.loggedIn === true;
-    const isConnected = statusData.data?.connected === true;
-
-    let qrCode = config.qr_code;
-
-    // 2. SE NÃO ESTIVER LOGADO, BUSCAR QR CODE ATUALIZADO
-    // Conforme Spec: Poll GET /session/qr se não estiver logado.
-    // Se conectado mas QR não emitido ainda, dispara reconnect para forçar emissão.
+    // 2. QR (somente se ainda não logado)
     if (!isLoggedIn) {
       const qrRes = await fetch(`${fzapUrl}/session/qr`, {
-        method: 'GET',
-        headers: {
-          'token': instanceToken
-        }
+        headers: { 'token': instanceToken },
       });
-
-      const qrText = await qrRes.text().catch(() => "");
-      let qrData: any = {};
-      try { qrData = JSON.parse(qrText); } catch { /* ignore */ }
-
-      // REAL Fzap (probe direto): data.qrCode (camelCase). Fallbacks defensivos.
-      let code = 
-        qrData?.data?.qrCode ?? 
-        qrData?.data?.QRCode ?? 
-        qrData?.data?.qrcode ?? 
-        qrData?.data?.qr ?? 
-        qrData?.data?.base64 ?? 
-        qrData?.qrCode ?? 
-        qrData?.QRCode ?? 
-        "";
-
-      console.log(`[Master Status] /session/qr ${qrRes.status} | code len=${code?.length || 0} | raw=${qrText.substring(0, 200)}`);
+      const qrText = await qrRes.text();
+      let qrJson: any = {}; try { qrJson = JSON.parse(qrText); } catch {}
+      const code = qrJson?.data?.QRCode ?? "";
+      console.log(`[Fzap Status] /session/qr ${qrRes.status} len=${code.length} raw=${qrText.substring(0, 200)}`);
 
       if (code && code.length > 50) {
-        if (!code.startsWith('data:image')) {
-          code = `data:image/png;base64,${code}`;
-        }
-        qrCode = code;
+        qrCode = code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
       } else {
-        // Sem QR válido — força reconnect para gerar novo QR.
-        // Cobre tanto sessão caída (!isConnected) quanto QR expirado
-        // (connected:true, loggedIn:false, QRCode:"") que ficaria preso para sempre.
-        console.log(`[Master Status] Sem QR (connected=${isConnected}) — disparando /session/connect`);
+        // Sem QR — reabrir socket conforme spec (QR expirado ou ainda não emitido).
+        console.log(`[Fzap Status] QR vazio — disparando /session/connect`);
         await fetch(`${fzapUrl}/session/connect`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-          body: JSON.stringify({}),
-        }).catch(err => console.warn('[Master Status] reconnect err:', err));
+          body: JSON.stringify({ immediate: true }),
+        }).catch(err => console.warn('[Fzap Status] reconnect err:', err));
       }
     }
 
-    // 3. ATUALIZAR BANCO
     const connection_status = isLoggedIn ? 'connected' : (isConnected ? 'connecting' : 'disconnected');
-    
+
     await supabase.from('evolution_config').update({
       connection_status,
       qr_code: isLoggedIn ? null : qrCode,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
     }).eq('user_id', user.id);
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        connected: isConnected,
-        loggedIn: isLoggedIn,
-        qrCode: isLoggedIn ? null : qrCode,
-        status: connection_status
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({
+      success: true,
+      connected: isLoggedIn, // só consideramos "conectado" quando logado
+      loggedIn: isLoggedIn,
+      qrCode: isLoggedIn ? null : qrCode,
+      status: connection_status,
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
-    console.error('[Master Status Error]:', error.message);
-    return new Response(
-      JSON.stringify({ success: false, error: error.message }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    console.error('[Fzap Status Error]:', error.message);
+    return new Response(JSON.stringify({ success: false, error: error.message }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });
