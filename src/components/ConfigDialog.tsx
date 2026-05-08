@@ -63,6 +63,13 @@ export default function ConfigDialog({ open, onOpenChange, onSaved }: ConfigDial
       try {
         const { data, error } = await supabase.functions.invoke('evolution-status');
 
+        if (Array.isArray(data?.logs) && data.logs.length) {
+          setServerLogs((prev) => {
+            const next = [...prev, `── poll @ ${new Date().toLocaleTimeString()} ──`, ...data.logs];
+            return next.slice(-200); // mantém só os 200 mais recentes
+          });
+        }
+
         if (error) {
           console.group('[Fzap Status Error]');
           console.error('Invoke error:', error);
