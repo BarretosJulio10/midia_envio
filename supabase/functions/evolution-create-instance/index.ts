@@ -119,25 +119,22 @@ Deno.serve(async (req: Request) => {
     }
 
     // ============================================================
-    // 3. POST /session/connect — APENAS se websocket não estiver ativo.
-    // Spec (linha 3714): chamar connect novamente reinicia o socket e
-    // invalida o QR em geração. Por isso só chamamos quando precisamos.
+    // 3. POST /session/connect — Garantir início da geração do QR.
+    // Segundo Fzapdoc (linha 3714): se o QR expira, deve-se chamar 
+    // connect novamente para iniciar um novo fluxo. 
+    // Na criação/reset, SEMPRE forçamos o connect se não estiver logado.
     // ============================================================
-    if (!alreadyConnected || alreadyLoggedIn) {
-      log(`POST /session/connect (immediate:true)`);
-      const connectRes = await fetch(`${fzapUrl}/session/connect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-        body: JSON.stringify({ immediate: true }),
-      });
-      const connectText = await connectRes.text();
-      log(`/session/connect → ${connectRes.status}: ${connectText.substring(0, 400)}`);
+    log(`POST /session/connect (immediate:true)`);
+    const connectRes = await fetch(`${fzapUrl}/session/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+      body: JSON.stringify({ immediate: true }),
+    });
+    const connectText = await connectRes.text();
+    log(`/session/connect → ${connectRes.status}: ${connectText.substring(0, 400)}`);
 
-      if (!connectRes.ok) {
-        throw new Error(`Falha em /session/connect (${connectRes.status}): ${connectText.substring(0, 200)}`);
-      }
-    } else {
-      log(`Socket já conectado — pulando /session/connect (evita resetar QR)`);
+    if (!connectRes.ok) {
+      throw new Error(`Falha em /session/connect (${connectRes.status}): ${connectText.substring(0, 200)}`);
     }
 
     // ============================================================
