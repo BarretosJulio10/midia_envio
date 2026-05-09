@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { loadActiveDriver } from "../_shared/drivers/index.ts";
+import { detectMediaType } from "../_shared/media-type.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -45,15 +46,11 @@ Deno.serve(async (req) => {
           const filePath = urlParts[1];
           const { data: signed } = await supabase.storage.from('whatsapp-files').createSignedUrl(filePath, 1800);
           const filename = msg.file_name || filePath.split('/').pop() || 'file';
-          const ext = filename.split('.').pop()?.toLowerCase() || '';
-          let type: any = 'document';
-          if (msg.file_type === 'sticker') type = 'sticker';
-          else if (['jpg','jpeg','png','webp','gif'].includes(ext)) type = 'image';
-          else if (['mp4','mov','webm','m4v'].includes(ext)) type = 'video';
-          else if (['mp3','m4a','wav','ogg','aac','opus'].includes(ext)) type = 'audio';
+          const type = detectMediaType(filename, msg.file_type);
+          const caption = (type === 'audio' || type === 'sticker') ? '' : (msg.caption ?? '');
           await driver.sendMedia({
             token, to: msg.group_id, mediaUrl: signed!.signedUrl, type,
-            caption: msg.caption ?? '', fileName: filename,
+            caption, fileName: filename,
           });
         } else if (msg.caption) {
           await driver.sendText({ token, to: msg.group_id, text: msg.caption });
