@@ -113,23 +113,38 @@ export class FzapDriver implements WhatsAppDriver {
 
   async sendMedia(p: SendMediaInput) {
     const map: Record<string, { path: string; field: string }> = {
-      image: { path: '/chat/send/image', field: 'image' },
-      video: { path: '/chat/send/video', field: 'video' },
-      audio: { path: '/chat/send/audio', field: 'audio' },
+      image:    { path: '/chat/send/image',    field: 'image' },
+      video:    { path: '/chat/send/video',    field: 'video' },
+      audio:    { path: '/chat/send/audio',    field: 'audio' },
       document: { path: '/chat/send/document', field: 'document' },
-      sticker: { path: '/chat/send/sticker', field: 'sticker' },
+      sticker:  { path: '/chat/send/sticker',  field: 'sticker' },
     };
     const m = map[p.type] ?? map.document;
     const body: Record<string, unknown> = { phone: p.to, [m.field]: p.mediaUrl };
-    if (p.caption && p.type !== 'audio' && p.type !== 'sticker') body.caption = p.caption;
-    if (p.type === 'document' && p.fileName) body.fileName = p.fileName;
+
+    if (p.caption && p.type !== 'audio' && p.type !== 'sticker') {
+      body.caption = p.caption;
+    }
+    if (p.type === 'document') {
+      // Fzap aceita variações; mandamos as duas para máxima compatibilidade.
+      const fn = p.fileName || 'file';
+      body.fileName = fn;
+      body.filename = fn;
+    }
+    if (p.type === 'audio') {
+      // sinaliza áudio/voice; algumas versões exigem mimetype
+      body.mimetype = 'audio/ogg; codecs=opus';
+    }
 
     const r = await fetch(this.url(m.path), {
       method: 'POST',
       headers: this.userHeaders(p.token),
       body: JSON.stringify(body),
     });
-    if (!r.ok) throw new Error(`fzap sendMedia(${p.type}) ${r.status}: ${await r.text()}`);
+    if (!r.ok) {
+      const txt = (await r.text()).slice(0, 200);
+      throw new Error(`fzap sendMedia(${p.type}) ${r.status}: ${txt}`);
+    }
   }
 
   async fetchGroups({ token }: { token: string }) {
