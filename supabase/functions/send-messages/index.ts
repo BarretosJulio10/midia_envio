@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { loadActiveDriver } from "../_shared/drivers/index.ts";
+import { detectMediaType } from "../_shared/media-type.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -35,9 +36,20 @@ Deno.serve(async (req) => {
       try {
         await supabase.from('messages').update({ status: 'sending' }).eq('id', msg.id);
         if (msg.file_url) {
+          // Gera signed URL para o arquivo no bucket privado (igual ao group sender)
+          let mediaUrl = msg.file_url;
+          const parts = msg.file_url.split('/whatsapp-files/');
+          if (parts[1]) {
+            const { data: signed } = await supabase.storage
+              .from('whatsapp-files').createSignedUrl(parts[1], 1800);
+            if (signed?.signedUrl) mediaUrl = signed.signedUrl;
+          }
+          const filename = msg.filename || (parts[1] ? parts[1].split('/').pop() : '') || 'file';
+          const type = detectMediaType(filename);
+          const caption = (type === 'audio' || type === 'sticker') ? undefined : (msg.message_text ?? undefined);
           await driver.sendMedia({
-            token: config.token, to: msg.phone, mediaUrl: msg.file_url,
-            type: 'image', caption: msg.message_text,
+            token: config.token, to: msg.phone, mediaUrl,
+            type, caption, fileName: filename,
           });
         } else {
           await driver.sendText({ token: config.token, to: msg.phone, text: msg.message_text });
