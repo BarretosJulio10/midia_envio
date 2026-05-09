@@ -1,94 +1,50 @@
+## Problema
+
+O envio de vídeos (e qualquer mídia que não seja imagem) está falhando com `fzap sendMedia(image) 40x` porque o sistema de envio individual está hardcoded como `image`. Os logs do print mostram arquivos `.mp4` sendo despachados com `type: 'image'` para o endpoint `/chat/send/image` do Fzap, que devolve 400.
+
+Além disso, a detecção de tipo está duplicada (e incompleta) entre `send-messages` e `send-group-messages`, e o driver Fzap precisa de pequenos ajustes para ficar 100% compatível com a OpenAPI v1.23.0 em vídeo/áudio/documento.
+
 ## Objetivo
-Reescrever o driver **Fzap** (`supabase/functions/_shared/drivers/fzap.ts`) seguindo a OpenAPI oficial v1.23.0 (arquivo enviado), para que a troca de driver em `/admin/drivers` deixe o Fzap 100% funcional sem novos deploys.
 
-## Diagnóstico — bugs no driver atual
-
-| # | Problema | Correto (docs Fzap v1.23.0) |
-|---|---|---|
-| 1 | `createInstance` chama `POST /instance/create` (não existe no Fzap) com header `apikey` | Endpoint correto: `POST /admin/users` com header `Authorization: <ADMIN_TOKEN>`, body `{ name, token }` |
-| 2 | Header de auth nas chamadas usa `apikey` em alguns lugares | Fzap usa **dois** headers: `Authorization` para `/admin/*` (admin token), e `token` para todos os endpoints de usuário (`/session/*`, `/chat/*`, `/group/*`) |
-| 3 | `getStatus` lê `qr` minúsculo | `GET /session/qr` retorna `data.QRCode` (já no formato `data:image/png;base64,...`) — renderizar direto |
-| 4 | `getStatus` não força reconexão quando o socket cai | Docs: se QR expirar ou websocket fechar, é preciso `POST /session/connect` de novo antes de pedir QR |
-| 5 | `resetInstance` só chama `/session/logout` | Adicionar fallback `POST /session/disconnect` e oferecer `POST /session/reset` (limpa estado persistido) |
-| 6 | `fetchGroups` espera `data` como array | `GET /group/list` retorna `data.groups[]` com campos `jid`, `name`, `participants[]` |
-| 7 | `sendMedia` usa fileName mas não envia `imageQualityHD`, `mimeType` etc. | Manter simples; aceitar URL HTTPS (Fzap baixa com cache) — campos por tipo: `image`, `video`, `audio`, `document`, `sticker` |
-
-## Arquitetura
-
-### Credenciais
-A tabela `api_drivers` guarda **uma** chave por driver (`api_key`). Para o Fzap precisamos de duas:
-- **Admin token** → criar instâncias (`/admin/users`)
-- **User/instance token** → operações do dia a dia (criado em `createInstance`, salvo em `fzap_config.token`)
-
-Solução: usar `api_drivers.api_key` como **admin token**. O token de cada instância continua sendo gerado por `createInstance` (`token-${userId.substring(0,8)}`) e enviado no `POST /admin/users`. Sem mudança de schema.
-
-(Se no futuro o Fzap precisar de outras credenciais — ex. URL Cloud API — usar o campo `config jsonb` que já existe na tabela.)
+Tornar o envio de mídia **universal**: o mesmo pipeline detecta o tipo correto a partir da extensão/MIME e cada driver ativo (Evolution Go, Fzap, Evolution API) consome seu endpoint específico via `driver.sendMedia()`. Sem mudanças de schema, sem mudar UI.
 
 ## Mudanças
 
-### `supabase/functions/_shared/drivers/fzap.ts` — reescrita completa
+### 1. Helper compartilhado de detecção de mídia
+Criar `supabase/functions/_shared/media-type.ts` com:
+- `detectMediaType(filename, hint?)` → retorna `'image' | 'video' | 'audio' | 'document' | 'sticker'`
+- Mapas de extensão: imagem (jpg/jpeg/png/webp/gif), vídeo (mp4/mov/webm/m4v/3gp), áudio (mp3/m4a/wav/ogg/aac/opus), sticker (.webp quando hint='sticker'), resto → document.
+- Aceita `hint` para forçar sticker quando o usuário marca explicitamente.
 
-- **`createInstance({ instanceName, userId })`**:
-  1. `POST {baseUrl}/admin/users` com header `Authorization: <admin_token>` e body `{ name: instanceName, token: instanceToken }`. Idempotente: se 409/já existe, segue.
-  2. `POST {baseUrl}/session/connect` com header `token: <instanceToken>` e body `{ immediate: true }` para iniciar fluxo QR.
-  3. Retorna `{ token: instanceToken, logs }`.
+### 2. Corrigir `supabase/functions/send-messages/index.ts` (BUG PRINCIPAL)
+- Remover o hardcode `type: 'image'`.
+- Gerar **signed URL** do arquivo em `whatsapp-files` (igual ao group sender) em vez de mandar a URL pública direta.
+- Usar `detectMediaType(filename)` para escolher o tipo.
+- Passar `fileName` no caso de document.
+- Tratar `caption` opcional para áudio/sticker (não enviar).
 
-- **`getStatus({ instanceName, token })`**:
-  1. `GET /session/status` com header `token`. Lê `data.loggedIn` e `data.connected`.
-  2. Se `connected=false`, dispara `POST /session/connect` (reanima websocket).
-  3. Se não está logado, `GET /session/qr` → `data.QRCode` (já é `data:image/png;base64,...`). Se vazio, espera próximo poll.
-  4. Retorna `{ connected, loggedIn, qrCode, logs }`.
+### 3. Refatorar `supabase/functions/send-group-messages/index.ts`
+- Substituir o switch de extensão local por `detectMediaType(filename, msg.file_type)`.
+- Mantém a lógica de signed URL e batch existente.
 
-- **`resetInstance({ token })`**:
-  1. `POST /session/logout` (token header).
-  2. Se falhar, `POST /session/disconnect` como fallback.
-  3. (Opcional) `POST /session/reset` para limpar estado persistido.
+### 4. Ajustes finos no driver Fzap (`_shared/drivers/fzap.ts`)
+Conforme OpenAPI v1.23.0:
+- `sendMedia` para `video`/`audio`/`document` aceita `caption` (manter) e o campo de mídia precisa ser **base64 ou URL**; garantir que a URL assinada está sendo enviada como string crua no campo correto.
+- Adicionar `mimetype` no body quando o tipo for `audio` (Fzap exige para PTT/voice) e `audio: true` para PTT opcional.
+- Para `document`, enviar `fileName` (camelCase) **e** `filename` (snake) como fallback — algumas versões do Fzap aceitam só uma das duas.
+- Mensagem de erro do `sendMedia` passa a incluir o tipo e os primeiros 200 chars do response para facilitar debug futuro.
 
-- **`sendText({ token, to, text })`**:
-  - `POST /chat/send/text` com `{ phone: to, body: text }`.
+### 5. Garantir consistência nos outros drivers
+- `evolution-go.ts` e `evolution-api.ts`: confirmar que `sendMedia` recebe `type` corretamente (já recebe via `SendMediaInput`). Sem mudança funcional além de garantir que `type` é repassado.
 
-- **`sendMedia({ token, to, mediaUrl, type, caption, fileName })`**:
-  - Mapeia `type` → endpoint:
-    - `image` → `/chat/send/image` body `{ phone, image: mediaUrl, caption }`
-    - `video` → `/chat/send/video` body `{ phone, video: mediaUrl, caption }`
-    - `audio` → `/chat/send/audio` body `{ phone, audio: mediaUrl }`
-    - `document` → `/chat/send/document` body `{ phone, document: mediaUrl, fileName, caption }`
-    - `sticker` → `/chat/send/sticker` body `{ phone, sticker: mediaUrl }`
-  - Header `token`. Aceita URL HTTPS (Fzap baixa com cache).
-
-- **`fetchGroups({ token })`**:
-  - `GET /group/list` com header `token`. Mapeia `data.groups[] → { id: g.jid, name: g.name, participants: g.participants?.length ?? 0 }`.
-
-- **`testConnection()`**:
-  - `GET /admin/users` com `Authorization: <admin_token>` para validar admin token (status < 500 = ok).
-
-### Validação
-1. Em `/admin/drivers`, editar Fzap: preencher `base_url` (URL da Fzap) e `api_key` (admin token).
-2. Clicar **Testar conexão** → deve responder OK.
-3. Clicar **Ativar**.
-4. No Dashboard, abrir conexão → deve criar usuário no Fzap, exibir QR e detectar `loggedIn=true` ao escanear.
-5. Enviar uma mensagem de teste (texto + imagem por URL).
-6. Listar grupos.
-7. Botão **Desconectar** chama `/session/logout` + `/session/disconnect`.
-
-### Deploy
-Como só o arquivo `_shared/drivers/fzap.ts` muda, redeploy das funções que carregam o driver:
-- `fzap-create-instance`
-- `fzap-status`
-- `fzap-reset-instance`
-- `send-messages`
-- `send-group-messages`
-- `fetch-groups`
-- `wa-test-driver`
-- `test-connection`
-
-### Documentação
-Atualizar `AI_MEMORY.md` / `CHANGELOG.md` com a correção dos endpoints Fzap (`/admin/users`, headers `Authorization` vs `token`, response `data.QRCode` e `data.groups`).
+### 6. Redeploy
+- `send-messages`, `send-group-messages` (consomem o helper novo).
+- `_shared/drivers/fzap.ts` é compartilhado, então qualquer função que o carrega precisa redeploy: `fzap-create-instance`, `fzap-status`, `fzap-reset-instance`, `send-messages`, `send-group-messages`, `fetch-groups`, `wa-test-driver`, `test-connection`.
 
 ## Fora de escopo
-- Suporte ao modo **Cloud API (WABA)** do Fzap (`providerType: "cloudapi"`). Apenas `whatsmeow` (QR) por enquanto.
-- Webhooks Fzap (`/webhook`) — sistema atual usa polling.
-- Endpoints Chatwoot, Newsletter, Community, Typebot, paid-traffic.
+- Mudanças de UI ou de schema do banco.
+- Reprocessamento automático das mensagens marcadas como `failed` (usuário pode clicar **Reenviar** depois do fix).
+- Suporte a Cloud API/WABA, webhooks, Chatwoot.
 
 ## Risco
-Baixo. Mudança isolada em um único arquivo de driver. Schema do banco e UI não mudam. Evolution Go (driver ativo atualmente) não é afetado.
+Baixo. A detecção por extensão é determinística e o único caminho que muda comportamento é o sender individual (que já estava quebrado para tudo que não é imagem).
