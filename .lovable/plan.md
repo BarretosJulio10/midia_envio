@@ -1,50 +1,37 @@
 ## Problema
 
-O envio de vídeos (e qualquer mídia que não seja imagem) está falhando com `fzap sendMedia(image) 40x` porque o sistema de envio individual está hardcoded como `image`. Os logs do print mostram arquivos `.mp4` sendo despachados com `type: 'image'` para o endpoint `/chat/send/image` do Fzap, que devolve 400.
+1. **Envios individuais ignoram pausas/delays.** O frontend (`IndividualSender.tsx`) já implementa toda a orquestração (delay aleatório entre msgs, `pause_after`, `pause_duration`) chamando `send-messages` em loop esperando **1 mensagem por chamada** e o flag `moreRemaining`. Mas o backend `send-messages/index.ts` processa **até 10 mensagens em sequência sem delay** e **não retorna `moreRemaining`/`sent`/`failed`**. Resultado: dispara 10 de uma vez e o loop morre após o 1º batch (porque `more` vem `undefined`).
 
-Além disso, a detecção de tipo está duplicada (e incompleta) entre `send-messages` e `send-group-messages`, e o driver Fzap precisa de pequenos ajustes para ficar 100% compatível com a OpenAPI v1.23.0 em vídeo/áudio/documento.
+2. **Driver Fzap manda campos errados para áudio.** Spec oficial (`fzapdoc.md` /chat/send/audio) usa `ptt: true` (e opcional `delay`) — não existe `mimetype` em JSON. Atualmente o driver envia `body.mimetype = 'audio/ogg; codecs=opus'`, que o Fzap ignora ou rejeita; voice messages não saem como PTT.
 
-## Objetivo
-
-Tornar o envio de mídia **universal**: o mesmo pipeline detecta o tipo correto a partir da extensão/MIME e cada driver ativo (Evolution Go, Fzap, Evolution API) consome seu endpoint específico via `driver.sendMedia()`. Sem mudanças de schema, sem mudar UI.
+3. **Document manda `filename` lowercase além de `fileName`.** Spec só documenta `fileName`; `filename` é ruído (inofensivo, mas remover por higiene).
 
 ## Mudanças
 
-### 1. Helper compartilhado de detecção de mídia
-Criar `supabase/functions/_shared/media-type.ts` com:
-- `detectMediaType(filename, hint?)` → retorna `'image' | 'video' | 'audio' | 'document' | 'sticker'`
-- Mapas de extensão: imagem (jpg/jpeg/png/webp/gif), vídeo (mp4/mov/webm/m4v/3gp), áudio (mp3/m4a/wav/ogg/aac/opus), sticker (.webp quando hint='sticker'), resto → document.
-- Aceita `hint` para forçar sticker quando o usuário marca explicitamente.
+### A) `supabase/functions/send-messages/index.ts`
+- Aceitar `action: 'start' | 'pause' | 'retry'`.
+- Para `'start'`: pegar **1** mensagem `queued` (não 10), processá-la e retornar `{ success, processed, sent, failed, moreRemaining }` onde `moreRemaining = (count de queued restantes > 0)`.
+- Para `'retry'`: `UPDATE messages SET status='queued', error_message=null WHERE user_id=? AND status='failed'` e retornar `{ success: true }`.
+- Para `'pause'`: apenas `{ success: true }` (frontend já controla via ref).
+- Manter detecção de tipo via `detectMediaType` + signed URL (já está correto).
 
-### 2. Corrigir `supabase/functions/send-messages/index.ts` (BUG PRINCIPAL)
-- Remover o hardcode `type: 'image'`.
-- Gerar **signed URL** do arquivo em `whatsapp-files` (igual ao group sender) em vez de mandar a URL pública direta.
-- Usar `detectMediaType(filename)` para escolher o tipo.
-- Passar `fileName` no caso de document.
-- Tratar `caption` opcional para áudio/sticker (não enviar).
+### B) `supabase/functions/_shared/drivers/fzap.ts` — método `sendMedia`
+- Áudio: remover `body.mimetype`; adicionar `body.ptt = true` (envia como voice message com waveform).
+- Document: remover `body.filename` (lowercase); manter apenas `body.fileName`.
+- Image/video/sticker: payload já está correto (`phone`, campo do tipo, `caption` opcional).
 
-### 3. Refatorar `supabase/functions/send-group-messages/index.ts`
-- Substituir o switch de extensão local por `detectMediaType(filename, msg.file_type)`.
-- Mantém a lógica de signed URL e batch existente.
+### C) `supabase/functions/send-group-messages/index.ts`
+Já respeita `safeBatch` + delay aleatório internamente (modelo diferente, ok). Sem mudança.
 
-### 4. Ajustes finos no driver Fzap (`_shared/drivers/fzap.ts`)
-Conforme OpenAPI v1.23.0:
-- `sendMedia` para `video`/`audio`/`document` aceita `caption` (manter) e o campo de mídia precisa ser **base64 ou URL**; garantir que a URL assinada está sendo enviada como string crua no campo correto.
-- Adicionar `mimetype` no body quando o tipo for `audio` (Fzap exige para PTT/voice) e `audio: true` para PTT opcional.
-- Para `document`, enviar `fileName` (camelCase) **e** `filename` (snake) como fallback — algumas versões do Fzap aceitam só uma das duas.
-- Mensagem de erro do `sendMedia` passa a incluir o tipo e os primeiros 200 chars do response para facilitar debug futuro.
+## Arquivos NÃO alterados
+- Frontend (`IndividualSender.tsx`, `GroupSender.tsx`, `ConfigDialog.tsx`) — já correto.
+- Drivers `evolution-go.ts` / `evolution-api.ts` — fora do escopo desta correção.
+- Schema do banco — nenhuma alteração necessária.
 
-### 5. Garantir consistência nos outros drivers
-- `evolution-go.ts` e `evolution-api.ts`: confirmar que `sendMedia` recebe `type` corretamente (já recebe via `SendMediaInput`). Sem mudança funcional além de garantir que `type` é repassado.
+## Como validar (após você aplicar e re-deployar as functions no seu Supabase externo)
+1. Configurar `pause_after=3`, `delay_min=8000`, `delay_max=12000`.
+2. Enfileirar 8 mensagens (texto + 1 vídeo + 1 áudio).
+3. Esperado: envia 1 → aguarda 8–12s → envia 1 → … → após 3, pausa por `pause_duration` → retoma. Vídeo entrega como vídeo, áudio como mensagem de voz (PTT) com waveform.
 
-### 6. Redeploy
-- `send-messages`, `send-group-messages` (consomem o helper novo).
-- `_shared/drivers/fzap.ts` é compartilhado, então qualquer função que o carrega precisa redeploy: `fzap-create-instance`, `fzap-status`, `fzap-reset-instance`, `send-messages`, `send-group-messages`, `fetch-groups`, `wa-test-driver`, `test-connection`.
-
-## Fora de escopo
-- Mudanças de UI ou de schema do banco.
-- Reprocessamento automático das mensagens marcadas como `failed` (usuário pode clicar **Reenviar** depois do fix).
-- Suporte a Cloud API/WABA, webhooks, Chatwoot.
-
-## Risco
-Baixo. A detecção por extensão é determinística e o único caminho que muda comportamento é o sender individual (que já estava quebrado para tudo que não é imagem).
+## Observação sobre deploy
+Não tenho conexão direta com seu Supabase externo nesta sessão (sem `PG*` env vars / connector). Vou alterar apenas o código do repositório; você precisa rodar `supabase functions deploy send-messages` (e implicitamente o `_shared` é incluído em todas as functions que o importam) no seu projeto externo.

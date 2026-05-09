@@ -126,14 +126,12 @@ export class FzapDriver implements WhatsAppDriver {
       body.caption = p.caption;
     }
     if (p.type === 'document') {
-      // Fzap aceita variações; mandamos as duas para máxima compatibilidade.
-      const fn = p.fileName || 'file';
-      body.fileName = fn;
-      body.filename = fn;
+      // Spec OpenAPI: campo oficial é `fileName`.
+      body.fileName = p.fileName || 'file';
     }
     if (p.type === 'audio') {
-      // sinaliza áudio/voice; algumas versões exigem mimetype
-      body.mimetype = 'audio/ogg; codecs=opus';
+      // PTT (voice message) com waveform automática (spec /chat/send/audio).
+      body.ptt = true;
     }
 
     const r = await fetch(this.url(m.path), {
