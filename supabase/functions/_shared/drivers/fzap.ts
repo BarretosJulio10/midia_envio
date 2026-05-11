@@ -111,12 +111,11 @@ export class FzapDriver implements WhatsAppDriver {
     const txt = await r.text();
     if (!r.ok) throw new Error(`fzap sendText ${r.status}: ${txt.slice(0, 300)}`);
     // HTTP 200 com success:false também é falha real
-    try {
-      const j = JSON.parse(txt);
-      if (j && j.success === false) {
-        throw new Error(`fzap sendText recusou: ${j.error || j.message || txt.slice(0, 200)}`);
-      }
-    } catch (_e) { /* body não-JSON: ignora */ }
+    let parsed: any = null;
+    try { parsed = JSON.parse(txt); } catch { /* body não-JSON */ }
+    if (parsed && parsed.success === false) {
+      throw new Error(`fzap sendText recusou: ${parsed.error || parsed.message || txt.slice(0, 200)}`);
+    }
   }
 
   async sendMedia(p: SendMediaInput) {
@@ -149,12 +148,11 @@ export class FzapDriver implements WhatsAppDriver {
     });
     const txt = await r.text();
     if (!r.ok) throw new Error(`fzap sendMedia(${p.type}) ${r.status}: ${txt.slice(0, 200)}`);
-    try {
-      const j = JSON.parse(txt);
-      if (j && j.success === false) {
-        throw new Error(`fzap sendMedia(${p.type}) recusou: ${j.error || j.message || txt.slice(0, 200)}`);
-      }
-    } catch (_e) { /* body não-JSON: ignora */ }
+    let parsed: any = null;
+    try { parsed = JSON.parse(txt); } catch { /* body não-JSON */ }
+    if (parsed && parsed.success === false) {
+      throw new Error(`fzap sendMedia(${p.type}) recusou: ${parsed.error || parsed.message || txt.slice(0, 200)}`);
+    }
   }
 
   async checkNumber({ token, phone }: { token: string; phone: string }): Promise<{ exists: boolean; jid: string | null }> {
