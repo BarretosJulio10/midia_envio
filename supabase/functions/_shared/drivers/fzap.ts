@@ -106,9 +106,16 @@ export class FzapDriver implements WhatsAppDriver {
     const r = await fetch(this.url('/chat/send/text'), {
       method: 'POST',
       headers: this.userHeaders(token),
-      body: JSON.stringify({ phone: to, body: text }),
+      body: JSON.stringify({ phone: to, body: text, check: true }),
     });
-    if (!r.ok) throw new Error(`fzap sendText ${r.status}: ${await r.text()}`);
+    const txt = await r.text();
+    if (!r.ok) throw new Error(`fzap sendText ${r.status}: ${txt.slice(0, 300)}`);
+    // HTTP 200 com success:false também é falha real
+    let parsed: any = null;
+    try { parsed = JSON.parse(txt); } catch { /* body não-JSON */ }
+    if (parsed && parsed.success === false) {
+      throw new Error(`fzap sendText recusou: ${parsed.error || parsed.message || txt.slice(0, 200)}`);
+    }
   }
 
   async sendMedia(p: SendMediaInput) {
@@ -120,7 +127,7 @@ export class FzapDriver implements WhatsAppDriver {
       sticker:  { path: '/chat/send/sticker',  field: 'sticker' },
     };
     const m = map[p.type] ?? map.document;
-    const body: Record<string, unknown> = { phone: p.to, [m.field]: p.mediaUrl };
+    const body: Record<string, unknown> = { phone: p.to, [m.field]: p.mediaUrl, check: true };
 
     if (p.caption && p.type !== 'audio' && p.type !== 'sticker') {
       body.caption = p.caption;
@@ -139,10 +146,33 @@ export class FzapDriver implements WhatsAppDriver {
       headers: this.userHeaders(p.token),
       body: JSON.stringify(body),
     });
-    if (!r.ok) {
-      const txt = (await r.text()).slice(0, 200);
-      throw new Error(`fzap sendMedia(${p.type}) ${r.status}: ${txt}`);
+    const txt = await r.text();
+    if (!r.ok) throw new Error(`fzap sendMedia(${p.type}) ${r.status}: ${txt.slice(0, 200)}`);
+    let parsed: any = null;
+    try { parsed = JSON.parse(txt); } catch { /* body não-JSON */ }
+    if (parsed && parsed.success === false) {
+      throw new Error(`fzap sendMedia(${p.type}) recusou: ${parsed.error || parsed.message || txt.slice(0, 200)}`);
     }
+  }
+
+  async checkNumber({ token, phone }: { token: string; phone: string }): Promise<{ exists: boolean; jid: string | null }> {
+    const r = await fetch(this.url('/user/check'), {
+      method: 'POST',
+      headers: this.userHeaders(token),
+      body: JSON.stringify({ phone: [phone] }),
+    });
+    if (!r.ok) {
+      // Em caso de falha do check (ex: 5xx), não bloqueia — devolve "exists" indefinido como true
+      // para não derrubar todo o envio se o endpoint estiver indisponível.
+      return { exists: true, jid: null };
+    }
+    const j = await r.json().catch(() => null) as any;
+    const users = j?.data?.users;
+    if (!Array.isArray(users) || users.length === 0) return { exists: false, jid: null };
+    const u = users[0];
+    const exists = u?.isInWhatsapp === true || u?.found === true;
+    const jid = typeof u?.jid === 'string' && u.jid ? u.jid : null;
+    return { exists, jid };
   }
 
   async fetchGroups({ token }: { token: string }) {

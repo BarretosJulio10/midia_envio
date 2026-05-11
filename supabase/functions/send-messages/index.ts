@@ -46,6 +46,17 @@ Deno.serve(async (req) => {
     let sent = 0, failed = 0;
     try {
       await supabase.from('messages').update({ status: 'sending' }).eq('id', msg.id);
+
+      // Validação prévia: número está no WhatsApp?
+      let target = msg.phone as string;
+      if (typeof driver.checkNumber === 'function') {
+        const chk = await driver.checkNumber({ token: config.token, phone: msg.phone }).catch(() => null);
+        if (chk && chk.exists === false) {
+          throw new Error('Número não cadastrado no WhatsApp');
+        }
+        if (chk?.jid) target = chk.jid;
+      }
+
       if (msg.file_url) {
         let mediaUrl = msg.file_url;
         const parts = msg.file_url.split('/whatsapp-files/');
@@ -58,11 +69,11 @@ Deno.serve(async (req) => {
         const type = detectMediaType(filename, msg.file_type);
         const caption = (type === 'audio' || type === 'sticker') ? undefined : (msg.message_text ?? undefined);
         await driver.sendMedia({
-          token: config.token, to: msg.phone, mediaUrl,
+          token: config.token, to: target, mediaUrl,
           type, caption, fileName: filename,
         });
       } else {
-        await driver.sendText({ token: config.token, to: msg.phone, text: msg.message_text });
+        await driver.sendText({ token: config.token, to: target, text: msg.message_text });
       }
       await supabase.from('messages').update({ status: 'sent', sent_at: new Date().toISOString(), error_message: null }).eq('id', msg.id);
       sent = 1;

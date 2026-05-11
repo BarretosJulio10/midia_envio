@@ -1,37 +1,97 @@
-## Problema
+# Objetivo
+Corrigir o caso dos números como `5566999730909` e `5537998719273` que aparecem como **Enviado** no sistema, mas não recebem a mensagem.
 
-1. **Envios individuais ignoram pausas/delays.** O frontend (`IndividualSender.tsx`) já implementa toda a orquestração (delay aleatório entre msgs, `pause_after`, `pause_duration`) chamando `send-messages` em loop esperando **1 mensagem por chamada** e o flag `moreRemaining`. Mas o backend `send-messages/index.ts` processa **até 10 mensagens em sequência sem delay** e **não retorna `moreRemaining`/`sent`/`failed`**. Resultado: dispara 10 de uma vez e o loop morre após o 1º batch (porque `more` vem `undefined`).
+# Diagnóstico
+O problema é o mesmo nos dois números:
 
-2. **Driver Fzap manda campos errados para áudio.** Spec oficial (`fzapdoc.md` /chat/send/audio) usa `ptt: true` (e opcional `delay`) — não existe `mimetype` em JSON. Atualmente o driver envia `body.mimetype = 'audio/ogg; codecs=opus'`, que o Fzap ignora ou rejeita; voice messages não saem como PTT.
+1. O backend atual marca `messages.status = 'sent'` assim que a API Fzap aceita a requisição.
+2. O driver Fzap atual não valida antes se o número realmente existe no WhatsApp.
+3. A documentação da Fzap mostra dois mecanismos que hoje não estão sendo usados no projeto:
+   - `POST /user/check` para validar se o número/JID está no WhatsApp e retornar o `jid` correto.
+   - `check: true` no payload de envio para forçar validação via `IsOnWhatsApp`.
+4. Em números brasileiros, isso é crítico porque alguns números antigos/regionais podem estar cadastrados no WhatsApp com outro formato sem o nono dígito. Exemplo provável:
+   - `5566999730909` pode resolver para `556699730909@s.whatsapp.net`
+   - `5537998719273` pode resolver para `553798719273@s.whatsapp.net`
 
-3. **Document manda `filename` lowercase além de `fileName`.** Spec só documenta `fileName`; `filename` é ruído (inofensivo, mas remover por higiene).
+Ou seja: hoje o sistema está registrando “requisição aceita pela API” como se fosse “mensagem entregue”, e isso gera falso positivo.
 
-## Mudanças
+# Solução
+## 1) Validar o número antes de enviar
+No driver Fzap, adicionar uma função para chamar `POST /user/check` usando o token da instância e o número informado.
 
-### A) `supabase/functions/send-messages/index.ts`
-- Aceitar `action: 'start' | 'pause' | 'retry'`.
-- Para `'start'`: pegar **1** mensagem `queued` (não 10), processá-la e retornar `{ success, processed, sent, failed, moreRemaining }` onde `moreRemaining = (count de queued restantes > 0)`.
-- Para `'retry'`: `UPDATE messages SET status='queued', error_message=null WHERE user_id=? AND status='failed'` e retornar `{ success: true }`.
-- Para `'pause'`: apenas `{ success: true }` (frontend já controla via ref).
-- Manter detecção de tipo via `detectMediaType` + signed URL (já está correto).
+Essa validação deve retornar:
+- se o número existe no WhatsApp
+- o `jid` correto reconhecido pelo WhatsApp
 
-### B) `supabase/functions/_shared/drivers/fzap.ts` — método `sendMedia`
-- Áudio: remover `body.mimetype`; adicionar `body.ptt = true` (envia como voice message com waveform).
-- Document: remover `body.filename` (lowercase); manter apenas `body.fileName`.
-- Image/video/sticker: payload já está correto (`phone`, campo do tipo, `caption` opcional).
+## 2) Enviar usando o JID resolvido
+Se o número existir, o envio deve usar o `jid` retornado pela Fzap, não apenas o telefone cru digitado/importado.
 
-### C) `supabase/functions/send-group-messages/index.ts`
-Já respeita `safeBatch` + delay aleatório internamente (modelo diferente, ok). Sem mudança.
+Isso resolve os casos em que a conta está registrada com formato diferente do número original.
 
-## Arquivos NÃO alterados
-- Frontend (`IndividualSender.tsx`, `GroupSender.tsx`, `ConfigDialog.tsx`) — já correto.
-- Drivers `evolution-go.ts` / `evolution-api.ts` — fora do escopo desta correção.
-- Schema do banco — nenhuma alteração necessária.
+## 3) Forçar checagem no próprio endpoint de envio
+Além da pré-validação, todos os envios do driver Fzap devem passar `check: true` no body.
 
-## Como validar (após você aplicar e re-deployar as functions no seu Supabase externo)
-1. Configurar `pause_after=3`, `delay_min=8000`, `delay_max=12000`.
-2. Enfileirar 8 mensagens (texto + 1 vídeo + 1 áudio).
-3. Esperado: envia 1 → aguarda 8–12s → envia 1 → … → após 3, pausa por `pause_duration` → retoma. Vídeo entrega como vídeo, áudio como mensagem de voz (PTT) com waveform.
+Assim, se houver discrepância de JID no momento do envio, a API passa a falhar de forma explícita em vez de aceitar silenciosamente.
 
-## Observação sobre deploy
-Não tenho conexão direta com seu Supabase externo nesta sessão (sem `PG*` env vars / connector). Vou alterar apenas o código do repositório; você precisa rodar `supabase functions deploy send-messages` (e implicitamente o `_shared` é incluído em todas as functions que o importam) no seu projeto externo.
+## 4) Não marcar como “Enviado” quando não houve entrega real
+Ajustar o fluxo para separar os conceitos:
+- `sent`: só deve significar que houve envio confirmado de forma aceitável pelo backend
+- `failed`: quando o número não existe, quando o JID é inválido, ou quando a Fzap recusar
+
+Como o projeto hoje não possui webhook/receipt implementado para confirmação real de entrega, o plano é:
+- impedir os falsos positivos imediatos
+- marcar como `failed` quando a validação disser que o número não está no WhatsApp
+- opcionalmente, numa próxima etapa, criar confirmação real via webhook/receipts da Fzap
+
+## 5) Atualizar também o fluxo de grupos apenas se necessário
+O problema relatado é para envio individual. O ajuste principal entra em `send-messages`.
+
+No envio para grupos, não há lookup de número individual, então o fluxo de `group_messages` só precisa ser alterado se quisermos padronizar o tratamento de `success: false` no body da Fzap.
+
+# Arquivos a alterar
+- `supabase/functions/_shared/drivers/types.ts`
+  - estender a interface do driver para suportar validação de número/JID
+- `supabase/functions/_shared/drivers/fzap.ts`
+  - implementar `checkNumber()` usando `/user/check`
+  - incluir `check: true` em `sendText()` e `sendMedia()`
+  - tratar resposta HTTP 200 com `success: false` como erro
+- `supabase/functions/send-messages/index.ts`
+  - validar número antes do envio
+  - usar o `jid` retornado
+  - marcar como `failed` com erro claro quando o número não estiver no WhatsApp
+- `supabase/functions/send-group-messages/index.ts`
+  - opcionalmente alinhar tratamento de erro da Fzap para não confiar apenas em `r.ok`
+
+# Resultado esperado
+Depois da correção:
+- números como `5566999730909` e `5537998719273` não ficarão mais como “Enviado” se não forem válidos
+- quando houver correspondência com outro JID válido, o sistema enviará para o JID correto
+- quando não houver correspondência, o sistema mostrará falha com mensagem do tipo:
+  - `Número não cadastrado no WhatsApp`
+  - ou `Número inválido / JID não encontrado`
+
+# Detalhes técnicos
+```text
+Fluxo novo:
+Fila -> pegar mensagem queued
+     -> /user/check(phone)
+        -> existe? não -> status=failed
+        -> existe? sim -> usar jid retornado
+     -> /chat/send/* com check=true
+        -> erro -> status=failed
+        -> sucesso -> status=sent
+```
+
+## Observação importante
+Hoje o banco `messages.status` só tem:
+- `queued`
+- `sending`
+- `sent`
+- `failed`
+- `paused`
+
+Então, sem criar migração, a correção imediata será:
+- continuar usando `sent` para envio aceito e validado
+- usar `failed` quando não houver confirmação mínima de existência do número
+
+Se você quiser a solução mais correta possível depois desta, a próxima etapa é adicionar um novo status como `accepted` e usar webhook/receipt da Fzap para marcar `delivered` ou `read` de verdade.
