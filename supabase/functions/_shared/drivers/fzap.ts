@@ -140,6 +140,10 @@ export class FzapDriver implements WhatsAppDriver {
       // PTT (voice message) com waveform automática (spec /chat/send/audio).
       body.ptt = true;
     }
+    if (p.type === 'sticker') {
+      // Reforça MIME esperado pelo WhatsApp (whatsmeow só renderiza WEBP).
+      body.mimeType = 'image/webp';
+    }
 
     const r = await fetch(this.url(m.path), {
       method: 'POST',
