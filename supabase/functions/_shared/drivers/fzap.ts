@@ -130,16 +130,31 @@ export class FzapDriver implements WhatsAppDriver {
         throw new Error(`fzap sendMedia(sticker) download ${fileRes.status}`);
       }
       const buf = new Uint8Array(await fileRes.arrayBuffer());
-      // base64 sem estourar stack para arquivos pequenos (<=200KB típicos de sticker)
-      let bin = '';
-      for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
-      const b64 = btoa(bin);
-      const dataUrl = `data:image/webp;base64,${b64}`;
+      // Validar assinatura WEBP (RIFF....WEBP) — evita "sucesso" enviando lixo.
+      const isWebp =
+        buf.length > 12 &&
+        buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+        buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50;
+      if (!isWebp) {
+        throw new Error('fzap sendMedia(sticker): arquivo não é WEBP válido');
+      }
+
+      // Enviar como multipart/form-data binário — modo mais determinístico
+      // listado na própria doc do Fzap (/chat/send/sticker).
+      const form = new FormData();
+      form.append('phone', p.to);
+      form.append('mimeType', 'image/webp');
+      form.append(
+        'sticker',
+        new Blob([buf], { type: 'image/webp' }),
+        'sticker.webp',
+      );
 
       const r = await fetch(this.url('/chat/send/sticker'), {
         method: 'POST',
-        headers: this.userHeaders(p.token),
-        body: JSON.stringify({ phone: p.to, sticker: dataUrl }),
+        // NÃO setar Content-Type: o fetch define o boundary do multipart sozinho.
+        headers: { 'token': p.token },
+        body: form,
       });
       const txt = await r.text();
       if (!r.ok) throw new Error(`fzap sendMedia(sticker) ${r.status}: ${txt.slice(0, 200)}`);
