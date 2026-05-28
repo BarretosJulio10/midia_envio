@@ -1,97 +1,40 @@
-# Objetivo
-Corrigir o caso dos números como `5566999730909` e `5537998719273` que aparecem como **Enviado** no sistema, mas não recebem a mensagem.
+## Problema
 
-# Diagnóstico
-O problema é o mesmo nos dois números:
+Ao enviar como **figurinha**, o sistema sobe o PNG/JPG original e chama `/chat/send/sticker` passando a URL. A Fzap entrega o arquivo, mas o WhatsApp **não renderiza** stickers que não estejam em **WEBP 512×512** — por isso aparece o placeholder "Figurinha sem etiqueta" com 8 B no celular do destinatário (a thumbnail nem chega a baixar).
 
-1. O backend atual marca `messages.status = 'sent'` assim que a API Fzap aceita a requisição.
-2. O driver Fzap atual não valida antes se o número realmente existe no WhatsApp.
-3. A documentação da Fzap mostra dois mecanismos que hoje não estão sendo usados no projeto:
-   - `POST /user/check` para validar se o número/JID está no WhatsApp e retornar o `jid` correto.
-   - `check: true` no payload de envio para forçar validação via `IsOnWhatsApp`.
-4. Em números brasileiros, isso é crítico porque alguns números antigos/regionais podem estar cadastrados no WhatsApp com outro formato sem o nono dígito. Exemplo provável:
-   - `5566999730909` pode resolver para `556699730909@s.whatsapp.net`
-   - `5537998719273` pode resolver para `553798719273@s.whatsapp.net`
+A doc Fzap v1.23 (linha 6889) é explícita: *"Sticker file (preferably image/webp)"*. WhatsApp/whatsmeow exige WEBP quadrado ≤ 512 px.
 
-Ou seja: hoje o sistema está registrando “requisição aceita pela API” como se fosse “mensagem entregue”, e isso gera falso positivo.
+## Solução
 
-# Solução
-## 1) Validar o número antes de enviar
-No driver Fzap, adicionar uma função para chamar `POST /user/check` usando o token da instância e o número informado.
+Converter cada imagem para **WEBP 512×512** no navegador (via `<canvas>` + `canvas.toBlob('image/webp')`) **antes do upload** quando a opção "Enviar como figurinha" estiver marcada. O resto do fluxo continua igual: upload no Storage, fila em `messages` com `file_type='sticker'`, edge function `send-messages` chama `/chat/send/sticker`.
 
-Essa validação deve retornar:
-- se o número existe no WhatsApp
-- o `jid` correto reconhecido pelo WhatsApp
+Como reforço, na edge function passamos também `mimeType: "image/webp"` no body do sticker, conforme a spec (campo opcional, mas remove ambiguidade).
 
-## 2) Enviar usando o JID resolvido
-Se o número existir, o envio deve usar o `jid` retornado pela Fzap, não apenas o telefone cru digitado/importado.
+### Alterações
 
-Isso resolve os casos em que a conta está registrada com formato diferente do número original.
+1. **`src/components/UploadSection.tsx`**
+   - Nova função `convertToStickerWebp(file)`:
+     - Carrega imagem em `<img>` → desenha em `<canvas>` 512×512 com `object-fit: contain` (fundo transparente, sem distorcer aspecto).
+     - Exporta via `canvas.toBlob(blob, 'image/webp', 0.9)`.
+     - Retorna novo `File` com extensão `.webp` e `type: 'image/webp'` (mantém o `id`/nome-base original do CSV para casar com o telefone).
+   - No loop de upload (linhas ~191-224), se `sendAsSticker === true` e o arquivo for imagem (`image/*`), substitui `file` pelo resultado da conversão antes do `supabase.storage.upload`.
+   - Aplica também no branch de "salvar lista" (~linhas 130-160).
+   - Se a conversão falhar (formato não suportado pelo canvas, ex.: HEIC), pula o item com `toast.warning` claro e continua.
 
-## 3) Forçar checagem no próprio endpoint de envio
-Além da pré-validação, todos os envios do driver Fzap devem passar `check: true` no body.
+2. **`supabase/functions/_shared/drivers/fzap.ts`** — em `sendMedia`, quando `p.type === 'sticker'`, adicionar `body.mimeType = 'image/webp'` no payload.
 
-Assim, se houver discrepância de JID no momento do envio, a API passa a falhar de forma explícita em vez de aceitar silenciosamente.
+3. **`supabase/functions/_shared/media-type.ts`** — sem mudanças; já respeita o `hint='sticker'`.
 
-## 4) Não marcar como “Enviado” quando não houve entrega real
-Ajustar o fluxo para separar os conceitos:
-- `sent`: só deve significar que houve envio confirmado de forma aceitável pelo backend
-- `failed`: quando o número não existe, quando o JID é inválido, ou quando a Fzap recusar
+### Fora de escopo
 
-Como o projeto hoje não possui webhook/receipt implementado para confirmação real de entrega, o plano é:
-- impedir os falsos positivos imediatos
-- marcar como `failed` quando a validação disser que o número não está no WhatsApp
-- opcionalmente, numa próxima etapa, criar confirmação real via webhook/receipts da Fzap
+- `send-group-messages` (mesmo padrão; pode ser feito num passo futuro se você usar figurinha em grupo).
+- Conversão server-side (não precisa: o navegador resolve sem custo).
+- Alterar endpoint, fluxo de fila, retry, validação de número, vídeo.
 
-## 5) Atualizar também o fluxo de grupos apenas se necessário
-O problema relatado é para envio individual. O ajuste principal entra em `send-messages`.
+### Risco
 
-No envio para grupos, não há lookup de número individual, então o fluxo de `group_messages` só precisa ser alterado se quisermos padronizar o tratamento de `success: false` no body da Fzap.
+Baixo. Mudança isolada no upload + 1 linha na edge function. Imagens já enviadas como sticker no banco não retroagem — só novas filas serão convertidas.
 
-# Arquivos a alterar
-- `supabase/functions/_shared/drivers/types.ts`
-  - estender a interface do driver para suportar validação de número/JID
-- `supabase/functions/_shared/drivers/fzap.ts`
-  - implementar `checkNumber()` usando `/user/check`
-  - incluir `check: true` em `sendText()` e `sendMedia()`
-  - tratar resposta HTTP 200 com `success: false` como erro
-- `supabase/functions/send-messages/index.ts`
-  - validar número antes do envio
-  - usar o `jid` retornado
-  - marcar como `failed` com erro claro quando o número não estiver no WhatsApp
-- `supabase/functions/send-group-messages/index.ts`
-  - opcionalmente alinhar tratamento de erro da Fzap para não confiar apenas em `r.ok`
+### Validação
 
-# Resultado esperado
-Depois da correção:
-- números como `5566999730909` e `5537998719273` não ficarão mais como “Enviado” se não forem válidos
-- quando houver correspondência com outro JID válido, o sistema enviará para o JID correto
-- quando não houver correspondência, o sistema mostrará falha com mensagem do tipo:
-  - `Número não cadastrado no WhatsApp`
-  - ou `Número inválido / JID não encontrado`
-
-# Detalhes técnicos
-```text
-Fluxo novo:
-Fila -> pegar mensagem queued
-     -> /user/check(phone)
-        -> existe? não -> status=failed
-        -> existe? sim -> usar jid retornado
-     -> /chat/send/* com check=true
-        -> erro -> status=failed
-        -> sucesso -> status=sent
-```
-
-## Observação importante
-Hoje o banco `messages.status` só tem:
-- `queued`
-- `sending`
-- `sent`
-- `failed`
-- `paused`
-
-Então, sem criar migração, a correção imediata será:
-- continuar usando `sent` para envio aceito e validado
-- usar `failed` quando não houver confirmação mínima de existência do número
-
-Se você quiser a solução mais correta possível depois desta, a próxima etapa é adicionar um novo status como `accepted` e usar webhook/receipt da Fzap para marcar `delivered` ou `read` de verdade.
+Após implementar, fazer upload de um PNG com "Enviar como figurinha", processar fila e confirmar que chega no WhatsApp como figurinha renderizada (não mais "Figurinha sem etiqueta / 8 B"). Redeploy da função `send-messages` no projeto `uvvaxwtumuabfklccjgd`.
