@@ -7,6 +7,33 @@ export class FzapDriver implements WhatsAppDriver {
   slug = 'fzap';
   constructor(private creds: DriverCreds) {}
   private url(p: string) { return `${this.creds.baseUrl}${p}`; }
+  private bytesToBase64(bytes: Uint8Array) {
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
+  }
+  private detectStickerMime(bytes: Uint8Array, headerMime?: string | null) {
+    if (
+      bytes.length > 12 &&
+      bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+    ) return 'image/webp';
+    if (bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+      return 'image/png';
+    }
+    if (bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+      return 'image/jpeg';
+    }
+    if (bytes.length > 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
+      return 'image/gif';
+    }
+    const normalized = (headerMime || '').split(';')[0].trim().toLowerCase();
+    if (normalized.startsWith('image/') || normalized.startsWith('video/')) return normalized;
+    return null;
+  }
   private adminHeaders() {
     return { 'Content-Type': 'application/json', 'Authorization': this.creds.apiKey };
   }
@@ -119,42 +146,31 @@ export class FzapDriver implements WhatsAppDriver {
   }
 
   async sendMedia(p: SendMediaInput) {
-    // Sticker tem fluxo próprio: WhatsApp/whatsmeow só renderiza WEBP quadrado
-    // <=512px entregue como conteúdo binário. Enviar a URL crua faz a Fzap
-    // repassar um arquivo que o WhatsApp marca como "Figurinha sem etiqueta".
-    // Baixamos o WEBP e mandamos como data URL base64 — formato listado na
-    // própria doc /chat/send/sticker (data:image/webp;base64,...).
+    // Sticker tem fluxo próprio. O handler real do Fzap/whatsmeow processa
+    // `sticker` como data URL/URL e faz a conversão interna para WEBP quando
+    // recebe PNG/JPG/GIF. Mandar multipart binário pula esse pipeline e pode
+    // resultar em mídia enviada mas não renderizada como figurinha.
     if (p.type === 'sticker') {
       const fileRes = await fetch(p.mediaUrl);
       if (!fileRes.ok) {
         throw new Error(`fzap sendMedia(sticker) download ${fileRes.status}`);
       }
       const buf = new Uint8Array(await fileRes.arrayBuffer());
-      // Validar assinatura WEBP (RIFF....WEBP) — evita "sucesso" enviando lixo.
-      const isWebp =
-        buf.length > 12 &&
-        buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
-        buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50;
-      if (!isWebp) {
-        throw new Error('fzap sendMedia(sticker): arquivo não é WEBP válido');
+      const mimeType = this.detectStickerMime(buf, fileRes.headers.get('content-type'));
+      if (!mimeType) {
+        throw new Error('fzap sendMedia(sticker): formato não suportado para conversão');
       }
 
-      // Enviar como multipart/form-data binário — modo mais determinístico
-      // listado na própria doc do Fzap (/chat/send/sticker).
-      const form = new FormData();
-      form.append('phone', p.to);
-      form.append('mimeType', 'image/webp');
-      form.append(
-        'sticker',
-        new Blob([buf], { type: 'image/webp' }),
-        'sticker.webp',
-      );
-
+      const body = {
+        phone: p.to,
+        sticker: `data:${mimeType};base64,${this.bytesToBase64(buf)}`,
+        mimeType,
+        check: true,
+      };
       const r = await fetch(this.url('/chat/send/sticker'), {
         method: 'POST',
-        // NÃO setar Content-Type: o fetch define o boundary do multipart sozinho.
-        headers: { 'token': p.token },
-        body: form,
+        headers: this.userHeaders(p.token),
+        body: JSON.stringify(body),
       });
       const txt = await r.text();
       if (!r.ok) throw new Error(`fzap sendMedia(sticker) ${r.status}: ${txt.slice(0, 200)}`);
