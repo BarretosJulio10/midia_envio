@@ -14,6 +14,45 @@ interface UploadSectionProps {
   onUploadComplete: () => void;
 }
 
+// Converte uma imagem para WEBP 512x512 (object-fit: contain, fundo transparente)
+// — WhatsApp/whatsmeow só renderiza figurinha em WEBP quadrado <= 512px.
+async function convertToStickerWebp(file: File): Promise<File> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error(`Arquivo ${file.name} não é uma imagem`);
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error(`Não foi possível ler ${file.name}`));
+      i.src = url;
+    });
+    const size = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas não disponível');
+    ctx.clearRect(0, 0, size, size);
+    const scale = Math.min(size / img.width, size / img.height);
+    const w = img.width * scale;
+    const h = img.height * scale;
+    ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+    const blob: Blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('Falha ao gerar WEBP'))),
+        'image/webp',
+        0.9,
+      );
+    });
+    const baseName = file.name.replace(/\.[^.]+$/, '');
+    return new File([blob], `${baseName}.webp`, { type: 'image/webp' });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export default function UploadSection({ onUploadComplete }: UploadSectionProps) {
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [files, setFiles] = useState<FileList | null>(null);
