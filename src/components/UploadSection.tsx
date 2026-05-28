@@ -178,11 +178,22 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
               return null;
             }
 
+            // Se for figurinha, converter para WEBP 512x512 antes do upload
+            let uploadFile = file;
+            if (sendAsSticker && file.type.startsWith('image/')) {
+              try {
+                uploadFile = await convertToStickerWebp(file);
+              } catch (e: any) {
+                toast.warning(`Pulando ${fileName}: ${e.message}`);
+                return null;
+              }
+            }
+
             // Upload file
-            const filePath = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}_${fileName}`;
+            const filePath = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}_${uploadFile.name}`;
             const { error: uploadError } = await supabase.storage
               .from('whatsapp-files')
-              .upload(filePath, file);
+              .upload(filePath, uploadFile);
 
             if (uploadError) throw uploadError;
 
@@ -193,7 +204,7 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
             return {
               phone,
               message_text: messageText,
-              filename: fileName,
+              filename: uploadFile.name,
               file_url: publicUrl,
             };
           })
@@ -235,11 +246,22 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
 
           if (!phone || blacklistedNumbers.has(phone) || blacklistedIds.has(fileId)) continue;
 
+          // Se for figurinha, converter para WEBP 512x512 antes do upload
+          let uploadFile = file;
+          if (sendAsSticker && file.type.startsWith('image/')) {
+            try {
+              uploadFile = await convertToStickerWebp(file);
+            } catch (e: any) {
+              toast.warning(`Pulando ${fileName}: ${e.message}`);
+              continue;
+            }
+          }
+
           // Upload file
-          const filePath = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}_${fileName}`;
+          const filePath = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}_${uploadFile.name}`;
           const { error: uploadError } = await supabase.storage
             .from('whatsapp-files')
-            .upload(filePath, file);
+            .upload(filePath, uploadFile);
 
           if (uploadError) throw uploadError;
 
@@ -251,7 +273,7 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
           await supabase.from('messages').insert({
             user_id: user.id,
             campaign_id: campaign.id,
-            filename: fileName,
+            filename: uploadFile.name,
             phone: phone,
             message_text: messageText,
             file_url: publicUrl,
