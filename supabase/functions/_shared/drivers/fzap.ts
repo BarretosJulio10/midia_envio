@@ -119,6 +119,38 @@ export class FzapDriver implements WhatsAppDriver {
   }
 
   async sendMedia(p: SendMediaInput) {
+    // Sticker tem fluxo próprio: WhatsApp/whatsmeow só renderiza WEBP quadrado
+    // <=512px entregue como conteúdo binário. Enviar a URL crua faz a Fzap
+    // repassar um arquivo que o WhatsApp marca como "Figurinha sem etiqueta".
+    // Baixamos o WEBP e mandamos como data URL base64 — formato listado na
+    // própria doc /chat/send/sticker (data:image/webp;base64,...).
+    if (p.type === 'sticker') {
+      const fileRes = await fetch(p.mediaUrl);
+      if (!fileRes.ok) {
+        throw new Error(`fzap sendMedia(sticker) download ${fileRes.status}`);
+      }
+      const buf = new Uint8Array(await fileRes.arrayBuffer());
+      // base64 sem estourar stack para arquivos pequenos (<=200KB típicos de sticker)
+      let bin = '';
+      for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+      const b64 = btoa(bin);
+      const dataUrl = `data:image/webp;base64,${b64}`;
+
+      const r = await fetch(this.url('/chat/send/sticker'), {
+        method: 'POST',
+        headers: this.userHeaders(p.token),
+        body: JSON.stringify({ phone: p.to, sticker: dataUrl }),
+      });
+      const txt = await r.text();
+      if (!r.ok) throw new Error(`fzap sendMedia(sticker) ${r.status}: ${txt.slice(0, 200)}`);
+      let parsed: any = null;
+      try { parsed = JSON.parse(txt); } catch { /* body não-JSON */ }
+      if (parsed && parsed.success === false) {
+        throw new Error(`fzap sendMedia(sticker) recusou: ${parsed.error || parsed.message || txt.slice(0, 200)}`);
+      }
+      return;
+    }
+
     const map: Record<string, { path: string; field: string }> = {
       image:    { path: '/chat/send/image',    field: 'image' },
       video:    { path: '/chat/send/video',    field: 'video' },
@@ -139,10 +171,6 @@ export class FzapDriver implements WhatsAppDriver {
     if (p.type === 'audio') {
       // PTT (voice message) com waveform automática (spec /chat/send/audio).
       body.ptt = true;
-    }
-    if (p.type === 'sticker') {
-      // Reforça MIME esperado pelo WhatsApp (whatsmeow só renderiza WEBP).
-      body.mimeType = 'image/webp';
     }
 
     const r = await fetch(this.url(m.path), {

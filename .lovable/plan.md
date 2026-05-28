@@ -1,40 +1,43 @@
-## Problema
+## Objetivo
+Corrigir apenas a exibição da figurinha no Fzap, sem mexer no restante do sistema de fila, banco, UI ou outros tipos de mídia.
 
-Ao enviar como **figurinha**, o sistema sobe o PNG/JPG original e chama `/chat/send/sticker` passando a URL. A Fzap entrega o arquivo, mas o WhatsApp **não renderiza** stickers que não estejam em **WEBP 512×512** — por isso aparece o placeholder "Figurinha sem etiqueta" com 8 B no celular do destinatário (a thumbnail nem chega a baixar).
+## Diagnóstico
+- O frontend já faz a parte principal da conversão: gera **WEBP 512×512** antes do upload quando a opção de figurinha está marcada (`src/components/UploadSection.tsx`).
+- O envio atual do Fzap usa `/chat/send/sticker` com `sticker: <signedUrl>` e `mimeType: 'image/webp'` (`supabase/functions/_shared/drivers/fzap.ts`).
+- A documentação real do Fzap confirma que sticker aceita **URL HTTPS** ou **data URL/base64**, mas o sintoma mostrado (“Figurinha sem etiqueta”, 8 B) é compatível com o WhatsApp recebendo um sticker inválido/incompleto apesar de a mensagem ser entregue.
+- Como o fluxo já funcionava com Evolution e a conversão no frontend já existe, a correção mínima deve ficar **no endpoint do driver Fzap**, não no restante da aplicação.
 
-A doc Fzap v1.23 (linha 6889) é explícita: *"Sticker file (preferably image/webp)"*. WhatsApp/whatsmeow exige WEBP quadrado ≤ 512 px.
+## Plano
+1. **Manter a conversão atual do frontend como está**
+   - Não alterar `UploadSection.tsx`, fila, storage, banco ou `send-messages/index.ts`.
+   - O WEBP 512×512 já está sendo gerado e salvo corretamente.
 
-## Solução
+2. **Ajustar somente o branch de sticker em `supabase/functions/_shared/drivers/fzap.ts`**
+   - Quando `p.type === 'sticker'`, em vez de enviar a **URL assinada** diretamente no campo `sticker`, baixar o arquivo WEBP e enviar para o Fzap como **`data:image/webp;base64,...`**.
+   - Montar um payload mínimo e específico para sticker, sem reutilizar a lógica dos outros tipos.
+   - Manter o endpoint `/chat/send/sticker` e o campo `sticker`, mas tornar o conteúdo determinístico para o Fzap/WhatsApp.
 
-Converter cada imagem para **WEBP 512×512** no navegador (via `<canvas>` + `canvas.toBlob('image/webp')`) **antes do upload** quando a opção "Enviar como figurinha" estiver marcada. O resto do fluxo continua igual: upload no Storage, fila em `messages` com `file_type='sticker'`, edge function `send-messages` chama `/chat/send/sticker`.
+3. **Limitar o payload de sticker ao estritamente necessário**
+   - Usar apenas os campos compatíveis com a doc para sticker.
+   - Não tocar no comportamento de `image`, `video`, `audio` e `document`.
+   - Não alterar o fluxo de detecção de mídia.
 
-Como reforço, na edge function passamos também `mimeType: "image/webp"` no body do sticker, conforme a spec (campo opcional, mas remove ambiguidade).
+4. **Validar apenas o cenário afetado**
+   - Testar envio de uma imagem marcada como figurinha.
+   - Confirmar que chega renderizada no WhatsApp, sem placeholder de 8 B.
 
-### Alterações
+## Detalhes técnicos
+- **Arquivo alvo:** `supabase/functions/_shared/drivers/fzap.ts`
+- **Sem mudanças em:**
+  - `src/components/UploadSection.tsx`
+  - `supabase/functions/send-messages/index.ts`
+  - banco/migrations
+  - outros drivers
+- **Motivo técnico da correção:** a conversão visual já existe; o ponto instável é o formato em que o sticker é entregue ao endpoint do Fzap.
 
-1. **`src/components/UploadSection.tsx`**
-   - Nova função `convertToStickerWebp(file)`:
-     - Carrega imagem em `<img>` → desenha em `<canvas>` 512×512 com `object-fit: contain` (fundo transparente, sem distorcer aspecto).
-     - Exporta via `canvas.toBlob(blob, 'image/webp', 0.9)`.
-     - Retorna novo `File` com extensão `.webp` e `type: 'image/webp'` (mantém o `id`/nome-base original do CSV para casar com o telefone).
-   - No loop de upload (linhas ~191-224), se `sendAsSticker === true` e o arquivo for imagem (`image/*`), substitui `file` pelo resultado da conversão antes do `supabase.storage.upload`.
-   - Aplica também no branch de "salvar lista" (~linhas 130-160).
-   - Se a conversão falhar (formato não suportado pelo canvas, ex.: HEIC), pula o item com `toast.warning` claro e continua.
-
-2. **`supabase/functions/_shared/drivers/fzap.ts`** — em `sendMedia`, quando `p.type === 'sticker'`, adicionar `body.mimeType = 'image/webp'` no payload.
-
-3. **`supabase/functions/_shared/media-type.ts`** — sem mudanças; já respeita o `hint='sticker'`.
-
-### Fora de escopo
-
-- `send-group-messages` (mesmo padrão; pode ser feito num passo futuro se você usar figurinha em grupo).
-- Conversão server-side (não precisa: o navegador resolve sem custo).
-- Alterar endpoint, fluxo de fila, retry, validação de número, vídeo.
-
-### Risco
-
-Baixo. Mudança isolada no upload + 1 linha na edge function. Imagens já enviadas como sticker no banco não retroagem — só novas filas serão convertidas.
-
-### Validação
-
-Após implementar, fazer upload de um PNG com "Enviar como figurinha", processar fila e confirmar que chega no WhatsApp como figurinha renderizada (não mais "Figurinha sem etiqueta / 8 B"). Redeploy da função `send-messages` no projeto `uvvaxwtumuabfklccjgd`.
+## Fora de escopo
+- Refatorar o sistema de upload
+- Alterar filas ou tabelas
+- Mexer em grupos
+- Ajustar outros tipos de mídia
+- Fazer mudanças visuais na interface
