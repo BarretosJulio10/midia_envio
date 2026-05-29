@@ -7,6 +7,13 @@ export class FzapDriver implements WhatsAppDriver {
   slug = 'fzap';
   constructor(private creds: DriverCreds) {}
   private url(p: string) { return `${this.creds.baseUrl}${p}`; }
+  private isWebp(bytes: Uint8Array) {
+    return (
+      bytes.length > 12 &&
+      bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+    );
+  }
   private bytesToBase64(bytes: Uint8Array) {
     let binary = '';
     const chunkSize = 0x8000;
@@ -16,11 +23,7 @@ export class FzapDriver implements WhatsAppDriver {
     return btoa(binary);
   }
   private detectStickerMime(bytes: Uint8Array, headerMime?: string | null) {
-    if (
-      bytes.length > 12 &&
-      bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
-      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
-    ) return 'image/webp';
+    if (this.isWebp(bytes)) return 'image/webp';
     if (bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
       return 'image/png';
     }
@@ -146,10 +149,6 @@ export class FzapDriver implements WhatsAppDriver {
   }
 
   async sendMedia(p: SendMediaInput) {
-    // Sticker tem fluxo próprio. O handler real do Fzap/whatsmeow processa
-    // `sticker` como data URL/URL e faz a conversão interna para WEBP quando
-    // recebe PNG/JPG/GIF. Mandar multipart binário pula esse pipeline e pode
-    // resultar em mídia enviada mas não renderizada como figurinha.
     if (p.type === 'sticker') {
       const fileRes = await fetch(p.mediaUrl);
       if (!fileRes.ok) {
@@ -161,12 +160,14 @@ export class FzapDriver implements WhatsAppDriver {
         throw new Error('fzap sendMedia(sticker): formato não suportado para conversão');
       }
 
+      if (!this.isWebp(buf)) {
+        throw new Error('fzap sendMedia(sticker): arquivo recebido não é WEBP válido');
+      }
+
       const body = {
         phone: p.to,
-        sticker: `data:${mimeType};base64,${this.bytesToBase64(buf)}`,
-        packName: 'Midia Envios',
-        packPublisher: 'Midia Envios',
-        ...(mimeType === 'image/webp' ? { mimeType } : {}),
+        sticker: `data:image/webp;base64,${this.bytesToBase64(buf)}`,
+        mimeType: 'image/webp',
         check: true,
       };
       const r = await fetch(this.url('/chat/send/sticker'), {
