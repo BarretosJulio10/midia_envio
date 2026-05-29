@@ -170,6 +170,7 @@ export default function SavedListsManager() {
         message_text: contact.message_text || '',
         filename: contact.filename || 'arquivo',
         file_url: contact.file_url || '',
+        file_type: contact.file_type || null,
         status: 'queued',
       }));
 
