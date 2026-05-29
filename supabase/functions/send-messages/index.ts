@@ -73,6 +73,10 @@ Deno.serve(async (req) => {
         }
         const filename = msg.filename || (parts[1] ? parts[1].split('/').pop() : '') || 'file';
         const type = detectMediaType(filename, msg.file_type);
+        console.log(
+          `[send-messages] media id=${msg.id} file_type=${msg.file_type ?? 'null'} ` +
+          `filename=${filename} detectedType=${type}`,
+        );
         const caption = (type === 'audio' || type === 'sticker') ? undefined : (msg.message_text ?? undefined);
         await driver.sendMedia({
           token: config.token, to: target, mediaUrl,
