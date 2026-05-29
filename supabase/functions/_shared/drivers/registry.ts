@@ -4,6 +4,28 @@ import { EvolutionGoDriver } from "./evolution-go.ts";
 import { FzapDriver } from "./fzap.ts";
 import { EvolutionApiDriver } from "./evolution-api.ts";
 
+async function fetchDriverBySlug(slug: string): Promise<{ slug: string; creds: DriverCreds }> {
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  );
+
+  const { data, error } = await supabase
+    .from('api_drivers')
+    .select('slug, base_url, api_key, config, enabled')
+    .eq('slug', slug)
+    .maybeSingle();
+
+  if (error || !data) throw new Error(`Driver "${slug}" não encontrado em api_drivers`);
+  if (!data.enabled) throw new Error(`Driver "${slug}" está desabilitado`);
+  if (!data.base_url) throw new Error(`Driver "${slug}" sem base_url configurada`);
+
+  return {
+    slug: data.slug,
+    creds: { baseUrl: data.base_url, apiKey: data.api_key, config: data.config ?? {} },
+  };
+}
+
 export async function loadActiveDriver(): Promise<{ driver: WhatsAppDriver; slug: string; creds: DriverCreds }> {
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
@@ -22,6 +44,11 @@ export async function loadActiveDriver(): Promise<{ driver: WhatsAppDriver; slug
 
   const creds: DriverCreds = { baseUrl: data.base_url, apiKey: data.api_key, config: data.config ?? {} };
   return { driver: getDriver(data.slug, creds), slug: data.slug, creds };
+}
+
+export async function loadDriverBySlug(slug: string): Promise<{ driver: WhatsAppDriver; slug: string; creds: DriverCreds }> {
+  const data = await fetchDriverBySlug(slug);
+  return { driver: getDriver(data.slug, data.creds), slug: data.slug, creds: data.creds };
 }
 
 export function getDriver(slug: string, creds: DriverCreds): WhatsAppDriver {
