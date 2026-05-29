@@ -2,6 +2,7 @@
 // Auth: Authorization (admin token) for /admin/*; token header for user endpoints.
 // QR endpoint returns data.QRCode already as `data:image/png;base64,...`.
 import type { WhatsAppDriver, DriverCreds, DriverStatus, SendMediaInput } from "./types.ts";
+import { convertToStickerWebp, isWebpBytes, bytesToBase64 } from "../sticker-convert.ts";
 
 export class FzapDriver implements WhatsAppDriver {
   slug = 'fzap';
@@ -150,37 +151,68 @@ export class FzapDriver implements WhatsAppDriver {
 
   async sendMedia(p: SendMediaInput) {
     if (p.type === 'sticker') {
+      console.log(`[fzap-sticker] start to=${p.to} mediaUrl=${p.mediaUrl.slice(0, 80)}...`);
+
+      // 1) Baixa o arquivo original do storage
       const fileRes = await fetch(p.mediaUrl);
       if (!fileRes.ok) {
         throw new Error(`fzap sendMedia(sticker) download ${fileRes.status}`);
       }
-      const buf = new Uint8Array(await fileRes.arrayBuffer());
-      const mimeType = this.detectStickerMime(buf, fileRes.headers.get('content-type'));
-      if (!mimeType) {
-        throw new Error('fzap sendMedia(sticker): formato não suportado para conversão');
+      const original = new Uint8Array(await fileRes.arrayBuffer());
+      const originalCT = fileRes.headers.get('content-type') || 'unknown';
+      console.log(`[fzap-sticker] downloaded bytes=${original.length} content-type=${originalCT}`);
+
+      // 2) Converte SEMPRE para WEBP 512x512 transparente (server-side, magick-wasm)
+      let webp: Uint8Array;
+      try {
+        const conv = await convertToStickerWebp(original);
+        webp = conv.bytes;
+        console.log(
+          `[fzap-sticker] converted inputMime=${conv.log.inputDetected} ` +
+          `inputSize=${conv.log.inputSize} outputSize=${conv.log.outputSize} ` +
+          `${conv.log.width}x${conv.log.height}`,
+        );
+      } catch (e: any) {
+        console.error(`[fzap-sticker] conversion failed: ${e?.message || e}`);
+        throw new Error(`fzap sendMedia(sticker) conversão falhou: ${e?.message || e}`);
       }
 
-      if (!this.isWebp(buf)) {
-        throw new Error('fzap sendMedia(sticker): arquivo recebido não é WEBP válido');
+      // 3) Validação dos magic bytes WEBP
+      if (!isWebpBytes(webp)) {
+        console.error(`[fzap-sticker] post-conversion buffer is NOT a valid WEBP`);
+        throw new Error('fzap sendMedia(sticker): conversão produziu buffer não-WEBP');
       }
 
+      // 4) Monta payload conforme MessageSticker da FZAP v1.23.0
+      const dataUrl = `data:image/webp;base64,${bytesToBase64(webp)}`;
       const body = {
         phone: p.to,
-        sticker: `data:image/webp;base64,${this.bytesToBase64(buf)}`,
+        sticker: dataUrl,
         mimeType: 'image/webp',
         check: true,
       };
+      console.log(
+        `[fzap-sticker] POST /chat/send/sticker mimeType=image/webp ` +
+        `payloadBytes=${dataUrl.length} kind=sticker`,
+      );
+
       const r = await fetch(this.url('/chat/send/sticker'), {
         method: 'POST',
         headers: this.userHeaders(p.token),
         body: JSON.stringify(body),
       });
       const txt = await r.text();
-      if (!r.ok) throw new Error(`fzap sendMedia(sticker) ${r.status}: ${txt.slice(0, 200)}`);
+      console.log(`[fzap-sticker] FZAP response status=${r.status} body=${txt.slice(0, 400)}`);
+
+      if (!r.ok) {
+        throw new Error(`fzap sendMedia(sticker) ${r.status}: ${txt.slice(0, 300)}`);
+      }
       let parsed: any = null;
       try { parsed = JSON.parse(txt); } catch { /* body não-JSON */ }
       if (parsed && parsed.success === false) {
-        throw new Error(`fzap sendMedia(sticker) recusou: ${parsed.error || parsed.message || txt.slice(0, 200)}`);
+        throw new Error(
+          `fzap sendMedia(sticker) recusou: ${parsed.error || parsed.message || txt.slice(0, 200)}`,
+        );
       }
       return;
     }
