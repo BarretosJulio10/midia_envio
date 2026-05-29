@@ -30,6 +30,37 @@ interface GroupMessage {
   error_message: string | null;
 }
 
+async function convertToStickerWebp(file: File): Promise<File> {
+  if (!file.type.startsWith('image/')) throw new Error(`Arquivo ${file.name} não é uma imagem`);
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error(`Não foi possível ler ${file.name}`));
+      i.src = url;
+    });
+    const size = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas não disponível');
+    ctx.clearRect(0, 0, size, size);
+    const scale = Math.min(size / img.width, size / img.height);
+    const w = img.width * scale;
+    const h = img.height * scale;
+    ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+    const blob: Blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Falha ao gerar WEBP'))), 'image/webp', 0.9);
+    });
+    const baseName = file.name.replace(/\.[^.]+$/, '');
+    return new File([blob], `${baseName}.webp`, { type: 'image/webp' });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export default function GroupSender() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
@@ -209,7 +240,10 @@ export default function GroupSender() {
       // Primeiro, processar todos os uploads e obter as URLs/metadata
       const uploadedFilesMetadata = [];
 
-      for (const file of files) {
+      for (const originalFile of files) {
+        const file = sendAsSticker && originalFile.type.startsWith('image/')
+          ? await convertToStickerWebp(originalFile)
+          : originalFile;
         console.log("Iniciando upload do arquivo:", file.name);
         const fileExt = file.name.split('.').pop();
         const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;

@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { loadActiveDriver } from "../_shared/drivers/index.ts";
+import { loadActiveDriver, loadDriverBySlug } from "../_shared/drivers/index.ts";
 import { detectMediaType } from "../_shared/media-type.ts";
 
 const corsHeaders = {
@@ -34,7 +34,9 @@ Deno.serve(async (req) => {
     const { data: config } = await supabase.from('fzap_config').select('token').eq('user_id', user.id).maybeSingle();
     if (!config?.token) throw new Error('Instância não conectada');
 
-    const { driver } = await loadActiveDriver();
+    const { driver } = config.driver_slug
+      ? await loadDriverBySlug(config.driver_slug)
+      : await loadActiveDriver();
 
     const { data: queued } = await supabase.from('messages').select('*')
       .eq('user_id', user.id).eq('status', 'queued')

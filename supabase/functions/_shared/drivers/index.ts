@@ -1,2 +1,2 @@
 export * from "./types.ts";
-export { loadActiveDriver, getDriver } from "./registry.ts";
+export { loadActiveDriver, loadDriverBySlug, getDriver } from "./registry.ts";

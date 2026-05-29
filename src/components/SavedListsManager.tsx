@@ -170,10 +170,11 @@ export default function SavedListsManager() {
         message_text: contact.message_text || '',
         filename: contact.filename || 'arquivo',
         file_url: contact.file_url || '',
+        file_type: contact.file_type || null,
         status: 'queued',
       }));
 
-      const { error } = await supabase.from('messages').insert(messages);
+      const { error } = await supabase.from('messages').insert(messages as any);
       if (error) throw error;
 
       toast.success(`${messages.length} mensagens adicionadas à fila (${listsToSend.length} listas)`);
