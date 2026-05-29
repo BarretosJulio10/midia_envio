@@ -31,7 +31,11 @@ Deno.serve(async (req) => {
     }
 
     // action === 'start' (default): processa UMA mensagem; frontend orquestra delays/pausas.
-    const { data: config } = await supabase.from('fzap_config').select('token').eq('user_id', user.id).maybeSingle();
+    const { data: config } = await supabase
+      .from('fzap_config')
+      .select('token, driver_slug')
+      .eq('user_id', user.id)
+      .maybeSingle();
     if (!config?.token) throw new Error('Instância não conectada');
 
     const { driver } = config.driver_slug
