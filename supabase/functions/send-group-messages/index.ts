@@ -49,6 +49,10 @@ Deno.serve(async (req) => {
           const { data: signed } = await supabase.storage.from('whatsapp-files').createSignedUrl(filePath, 1800);
           const filename = msg.file_name || filePath.split('/').pop() || 'file';
           const type = detectMediaType(filename, msg.file_type);
+          console.log(
+            `[send-group-messages] media id=${msg.id} file_type=${msg.file_type ?? 'null'} ` +
+            `filename=${filename} detectedType=${type}`,
+          );
           const caption = (type === 'audio' || type === 'sticker') ? '' : (msg.caption ?? '');
           await driver.sendMedia({
             token, to: msg.group_id, mediaUrl: signed!.signedUrl, type,

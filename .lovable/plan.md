@@ -1,105 +1,57 @@
-# Plano para corrigir o envio de figurinhas pela FZAP
+# Plano de correção
 
 ## Objetivo
-Fazer o PNG enviado pelo usuário virar uma figurinha nativa do WhatsApp, reconhecida como sticker real no Android e iPhone, enviada pelo endpoint `/chat/send/sticker` da FZAP com `mimeType: image/webp`, sem cair como imagem/documento e sem aparecer como “Figurinha sem etiqueta” quebrada.
+Fazer a FZAP receber e encaminhar a mídia como sticker nativo do WhatsApp, evitando o comportamento atual de arquivo quebrado/"Figurinha sem etiqueta".
 
-## Diagnóstico atual
-- O driver FZAP já chama `/chat/send/sticker`, mas hoje ele apenas baixa o arquivo e exige que ele já esteja em WEBP válido.
-- A conversão atual está acontecendo no frontend via `canvas.toBlob(..., 'image/webp')`, o que não garante um WEBP compatível com sticker nativo do WhatsApp.
-- A Edge Function responde `sent: 1`, então o problema não está no disparo da fila, e sim no conteúdo/montagem do sticker enviado à FZAP.
-- A documentação local da FZAP confirma que o endpoint correto é `POST /chat/send/sticker` e aceita `sticker` em data URL/base64/URL, com `mimeType: image/webp`.
+## O que vou corrigir
 
-## Observação técnica importante
-O runtime de Supabase Edge Functions normalmente não suporta `sharp` nativo. Então a implementação precisa começar verificando se esse deploy aceita `npm:sharp`; se não aceitar, será necessário usar uma alternativa compatível com Edge mantendo exatamente o mesmo contrato de saída (`image/webp`, 512x512, transparência, base64/data URL).
+1. **Remover a conversão principal do frontend**
+   - Parar de depender do `canvas.toBlob(..., 'image/webp')` em `UploadSection.tsx` e `GroupSender.tsx` como etapa principal do fluxo.
+   - O frontend continuará apenas marcando `file_type: 'sticker'` e enviando o arquivo original.
 
-## O que vou implementar
+2. **Padronizar a conversão no backend**
+   - Garantir que o driver FZAP converta sempre o arquivo original para sticker compatível.
+   - Revisar o pipeline atual em `sticker-convert.ts` para produzir um WEBP realmente adequado ao WhatsApp/FZAP.
 
-### 1) Mover a conversão de sticker para o backend
-- Tirar a confiança da conversão do frontend como etapa principal.
-- Fazer a conversão final no driver/Edge Function antes do envio à FZAP.
-- Usar o arquivo original armazenado no Storage como entrada real do pipeline.
+3. **Corrigir o payload enviado à FZAP**
+   - Validar o uso de `/chat/send/sticker` com `sticker`, `mimeType: image/webp` e, se necessário, incluir `pngThumbnail`.
+   - Confirmar se a FZAP aceita melhor `data URL`, base64 puro ou `multipart/form-data` neste caso e padronizar o envio.
 
-### 2) Criar pipeline de conversão compatível com sticker WhatsApp
-- Entrada: PNG/JPG enviado pelo usuário.
-- Processamento:
-  - resize para 512x512
-  - `fit: contain`
-  - fundo transparente
-  - exportar como WEBP
-- Garantir saída em buffer/binário válido para sticker.
-- Gerar base64/data URL final com `data:image/webp;base64,...`.
+4. **Melhorar logs de diagnóstico**
+   - Adicionar logs completos no backend para tamanho final, MIME detectado, MIME enviado, tipo de mensagem enviado, modo de payload usado e resposta completa da FZAP.
+   - Logar explicitamente quando o frontend subir PNG original vs WEBP convertido.
 
-### 3) Corrigir o driver FZAP para enviar sticker de forma estrita
-- No branch `sticker`, sempre enviar:
-  - `phone`
-  - `sticker: data:image/webp;base64,...`
-  - `mimeType: 'image/webp'`
-  - `check: true`
-- Impedir fallback silencioso para `/chat/send/image` ou `/chat/send/document`.
-- Validar magic bytes do WEBP gerado antes do POST.
+5. **Eliminar ambiguidades no fluxo**
+   - Garantir que `file_type: 'sticker'` seja preservado em upload individual, grupos e listas salvas.
+   - Verificar se algum trecho ainda reclassifica `.webp` como imagem comum em vez de sticker.
 
-### 4) Adicionar logs completos de ponta a ponta
-Registrar no backend:
-- tipo original do arquivo
-- tamanho original
-- tamanho final
-- mime detectado
-- mime enviado
-- tipo enviado (`sticker`)
-- se houve conversão ou não
-- resposta HTTP da FZAP
-- body resumido da resposta da FZAP
-- erro detalhado de conversão/download/upload
+6. **Validar o resultado final**
+   - Conferir que o arquivo não chega mais como documento/imagem.
+   - Confirmar que o backend usa o endpoint correto e que o WhatsApp abre a figurinha normalmente.
 
-### 5) Ajustar os fluxos que alimentam a fila
-Revisar e alinhar:
-- `UploadSection.tsx`
-- `GroupSender.tsx`
-- `SavedListsManager.tsx`
-- `send-messages`
-- `send-group-messages`
-
-Objetivo:
-- preservar `file_type: 'sticker'`
-- permitir subir o arquivo original sem depender do WEBP do browser como verdade final
-- garantir que toda mensagem marcada como figurinha passe pelo mesmo pipeline backend
-
-### 6) Validar compatibilidade com a documentação FZAP
-- Confirmar aderência ao schema `MessageSticker` da documentação local.
-- Validar se `pngThumbnail` é necessário ou opcional no caso real.
-- Confirmar se a FZAP aceita melhor data URL ou raw base64 para sticker neste projeto; se necessário, testar ambos no driver.
-
-### 7) Verificação final
-Validar que o fluxo entrega:
-- figurinha abrindo normalmente
-- sem placeholder quebrado
-- sem “Figurinha sem etiqueta” incorreta por payload inválido
-- sem envio como documento
-- compatível com Android e iPhone
-
-## Arquivos previstos para ajuste
+## Arquivos envolvidos
+- `src/components/UploadSection.tsx`
+- `src/components/GroupSender.tsx`
+- `src/components/SavedListsManager.tsx` (se necessário para preservar `file_type`)
+- `supabase/functions/_shared/sticker-convert.ts`
 - `supabase/functions/_shared/drivers/fzap.ts`
 - `supabase/functions/send-messages/index.ts`
 - `supabase/functions/send-group-messages/index.ts`
-- `src/components/UploadSection.tsx`
-- `src/components/GroupSender.tsx`
-- `src/components/SavedListsManager.tsx`
+
+## Diagnóstico atual
+- O endpoint documentado está correto: `POST /chat/send/sticker`.
+- A doc local da FZAP aceita `sticker` em data URL/base64/URL e `mimeType: image/webp`.
+- O frontend ainda converte e salva `.webp` antes do backend, o que pode estar contaminando o fluxo.
+- O backend já tenta converter para WEBP, mas ainda falta validar se o formato gerado e o corpo enviado batem exatamente com o que a FZAP/WhatsApp espera para sticker nativo.
 
 ## Detalhes técnicos
-```text
-Frontend upload
-  -> Storage (arquivo original)
-  -> messages/group_messages com file_type='sticker'
-  -> Edge Function processa fila
-  -> Driver FZAP baixa original
-  -> converte para WEBP sticker-safe no backend
-  -> valida buffer WEBP
-  -> monta data URL base64
-  -> POST /chat/send/sticker
-```
-
-## Risco principal
-- Se `sharp` não puder rodar no runtime do Supabase Edge desse projeto, a correção precisará usar uma biblioteca compatível com Edge para produzir o mesmo resultado. Isso não muda o comportamento final esperado, só a engine da conversão.
+- Vou centralizar a conversão no backend para eliminar variação entre navegadores.
+- Vou revisar se o pipeline precisa gerar também thumbnail PNG/base64 para compatibilidade com FZAP/whatsmeow.
+- Vou comparar o envio atual com o schema `MessageSticker` documentado e ajustar o serializador final.
+- Se o problema for limitação do runtime Edge para processamento pesado, eu proponho a menor mudança necessária após validar isso no código.
 
 ## Resultado esperado
-O sistema deixará de apenas renomear/salvar `.webp` e passará a gerar e enviar uma figurinha real, em buffer WEBP válido, pelo endpoint correto da FZAP.
+- PNG enviado pelo usuário.
+- Conversão automática server-side para sticker WEBP 512x512 com transparência.
+- Envio via `/chat/send/sticker` como sticker nativo.
+- Sem placeholder quebrado, sem envio como documento, sem "figurinha sem etiqueta" inválida.

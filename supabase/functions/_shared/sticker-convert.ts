@@ -37,6 +37,7 @@ export function isWebpBytes(bytes: Uint8Array): boolean {
 export type StickerConvertLog = {
   inputSize: number;
   outputSize: number;
+  thumbnailSize: number;
   inputDetected: string;
   converted: boolean;
   width: number;
@@ -65,7 +66,7 @@ function detectInputMime(bytes: Uint8Array): string {
  */
 export async function convertToStickerWebp(
   input: Uint8Array,
-): Promise<{ bytes: Uint8Array; log: StickerConvertLog }> {
+): Promise<{ bytes: Uint8Array; pngThumbnail: Uint8Array; log: StickerConvertLog }> {
   const inputMime = detectInputMime(input);
 
   await ensureMagick();
@@ -88,16 +89,21 @@ export async function convertToStickerWebp(
 
         img.write(MagickFormat.WebP, (out) => {
           const bytes = new Uint8Array(out);
-          resolve({
-            bytes,
-            log: {
-              inputSize: input.length,
-              outputSize: bytes.length,
-              inputDetected: inputMime,
-              converted: true,
-              width: 512,
-              height: 512,
-            },
+          img.write(MagickFormat.Png, (thumb) => {
+            const pngThumbnail = new Uint8Array(thumb);
+            resolve({
+              bytes,
+              pngThumbnail,
+              log: {
+                inputSize: input.length,
+                outputSize: bytes.length,
+                thumbnailSize: pngThumbnail.length,
+                inputDetected: inputMime,
+                converted: true,
+                width: 512,
+                height: 512,
+              },
+            });
           });
         });
       });
