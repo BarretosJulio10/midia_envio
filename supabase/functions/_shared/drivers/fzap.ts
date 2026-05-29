@@ -165,6 +165,8 @@ export class FzapDriver implements WhatsAppDriver {
         phone: p.to,
         sticker: `data:${mimeType};base64,${this.bytesToBase64(buf)}`,
         mimeType,
+        packName: 'Midia Envios',
+        packPublisher: 'Midia Envios',
         check: true,
       };
       const r = await fetch(this.url('/chat/send/sticker'), {
