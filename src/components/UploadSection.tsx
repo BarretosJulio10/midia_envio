@@ -206,6 +206,7 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
               message_text: messageText,
               filename: uploadFile.name,
               file_url: publicUrl,
+              file_type: sendAsSticker ? 'sticker' : (sendAsDocument ? 'document' : null),
             };
           })
         );

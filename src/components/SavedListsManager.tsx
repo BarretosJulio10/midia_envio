@@ -174,7 +174,7 @@ export default function SavedListsManager() {
         status: 'queued',
       }));
 
-      const { error } = await supabase.from('messages').insert(messages);
+      const { error } = await supabase.from('messages').insert(messages as any);
       if (error) throw error;
 
       toast.success(`${messages.length} mensagens adicionadas à fila (${listsToSend.length} listas)`);
