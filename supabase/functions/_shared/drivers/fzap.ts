@@ -162,14 +162,17 @@ export class FzapDriver implements WhatsAppDriver {
       const originalCT = fileRes.headers.get('content-type') || 'unknown';
       console.log(`[fzap-sticker] downloaded bytes=${original.length} content-type=${originalCT}`);
 
-      // 2) Converte SEMPRE para WEBP 512x512 transparente (server-side, magick-wasm)
+      // 2) Converte SEMPRE para WEBP 512x512 transparente e gera thumbnail PNG
       let webp: Uint8Array;
+      let pngThumbnail: Uint8Array;
       try {
         const conv = await convertToStickerWebp(original);
         webp = conv.bytes;
+        pngThumbnail = conv.pngThumbnail;
         console.log(
           `[fzap-sticker] converted inputMime=${conv.log.inputDetected} ` +
           `inputSize=${conv.log.inputSize} outputSize=${conv.log.outputSize} ` +
+          `thumbnailSize=${conv.log.thumbnailSize} ` +
           `${conv.log.width}x${conv.log.height}`,
         );
       } catch (e: any) {
@@ -189,11 +192,12 @@ export class FzapDriver implements WhatsAppDriver {
         phone: p.to,
         sticker: dataUrl,
         mimeType: 'image/webp',
+        pngThumbnail: `data:image/png;base64,${bytesToBase64(pngThumbnail)}`,
         check: true,
       };
       console.log(
         `[fzap-sticker] POST /chat/send/sticker mimeType=image/webp ` +
-        `payloadBytes=${dataUrl.length} kind=sticker`,
+        `payloadBytes=${dataUrl.length} thumbnailBytes=${pngThumbnail.length} kind=sticker`,
       );
 
       const r = await fetch(this.url('/chat/send/sticker'), {
