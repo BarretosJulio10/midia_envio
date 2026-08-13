@@ -58,3 +58,11 @@ O sistema foi migrado com sucesso para a **Fzap API (v1.23.0)**.
 - **Admin Token**: `P3BpI2Cz1nUmFOXdHOeuGUzk` (Secret: `FZAP_ADMIN_TOKEN`).
 - **Base URL**: `https://fzap.pagoupix.com.br` (Secret: `FZAP_API_URL`).
 - **Headers**: Usar `Authorization: <admin_token>` para rotas `/admin` e `token: <inst_token>` (ou `apikey`) para rotas de sessão.
+
+## Módulo Social (2026-08-13)
+- Tabelas: `social_accounts` (company_ref = id do CSV, platform facebook|instagram, page_id, ig_user_id, access_token, enabled) e `social_posts` (fila: queued|publishing|published|failed|blocked).
+- Drivers sociais em `_shared/social/` com interface `SocialDriver`; Graph API v21.0.
+- Instagram publica em 2 etapas (container `/media` + `/media_publish`, polling de status para vídeo/Reels). Facebook usa `/photos`, `/videos` e `/feed`.
+- Mídia é enviada por URL assinada do bucket `whatsapp-files` com 6h de validade.
+- Secrets opcionais: `META_APP_ID` e `META_APP_SECRET` (trocam token curto por token de longa duração).
+- REGRA: o fluxo de WhatsApp (`messages` / `send-messages` / drivers FZAP) não pode ser alterado por este módulo.

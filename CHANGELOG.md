@@ -90,3 +90,11 @@ Formato: [MAJOR.MINOR.PATCH] - YYYY-MM-DD
 - Edge Functions: `fzap-create-instance`, `fzap-status`, `send-messages`, `send-group-messages`, `fetch-groups`, `test-connection`, `cleanup-files`.
 - Sistema de envio individual e para grupos.
 - Configuração de delay e pausas por lote.
+
+## 2026-08-13 — Módulo de Redes Sociais (Facebook / Instagram)
+- Novas tabelas `social_accounts` e `social_posts` (RLS por user_id + grants). Nenhuma tabela do WhatsApp alterada.
+- Novos drivers sociais em `supabase/functions/_shared/social/` (facebook.ts, instagram.ts, registry.ts) seguindo o padrão universal de drivers.
+- Novas edge functions: `publish-social` (publica 1 post por chamada) e `social-connect` (descobre páginas/contas IG a partir de um token da Meta).
+- Frontend: nova aba "Redes Sociais" no Dashboard (contas por empresa + fila de publicações) e checkbox opcional "Publicar também nas redes sociais" no UploadSection.
+- Blacklist reaproveitada: empresa bloqueada gera post com status `blocked` e nunca publica.
+- Pendente: deploy das funções `publish-social` e `social-connect` (token do Supabase expirado).

@@ -24,6 +24,7 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
   const [blacklistInput, setBlacklistInput] = useState("");
   const [sendAsDocument, setSendAsDocument] = useState(false);
   const [sendAsSticker, setSendAsSticker] = useState(false);
+  const [postToSocial, setPostToSocial] = useState(false);
   const queryClient = useQueryClient();
 
   const addToBlacklist = useMutation({
@@ -127,6 +128,57 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
         return;
       }
 
+      // ---- Módulo social (opcional). Se desmarcado, nada abaixo executa. ----
+      const socialRows: any[] = [];
+      let socialAccounts: any[] = [];
+      if (postToSocial) {
+        const { data: accs } = await (supabase as any)
+          .from('social_accounts').select('*').eq('enabled', true);
+        socialAccounts = accs ?? [];
+        if (socialAccounts.length === 0) {
+          toast.warning("Nenhuma empresa com rede social ativa — nada será publicado.");
+        }
+        // Empresas bloqueadas na blacklist entram como "blocked" (visível, nunca publica)
+        Object.keys(csvData).forEach((id) => {
+          if (!blacklistedIds.has(id) && !blacklistedNumbers.has(csvData[id])) return;
+          socialAccounts.filter((a) => a.company_ref === id).forEach((acc) => {
+            socialRows.push({
+              user_id: user.id,
+              social_account_id: acc.id,
+              company_ref: id,
+              platform: acc.platform,
+              media_type: 'image',
+              caption: messageText || null,
+              status: 'blocked',
+              error_message: 'Empresa na blacklist',
+            });
+          });
+        });
+      }
+
+      const socialMediaType = (name: string) =>
+        /\.(mp4|mov|webm|m4v|3gp|mkv|avi)$/i.test(name) ? 'video'
+          : /\.(jpe?g|png|gif|bmp|webp|heic|heif)$/i.test(name) ? 'image' : null;
+
+      const queueSocial = (fileId: string, filename: string, publicUrl: string) => {
+        if (!postToSocial) return;
+        const type = socialMediaType(filename);
+        socialAccounts.filter((a) => a.company_ref === fileId).forEach((acc) => {
+          if (!type) return; // Meta só publica imagem ou vídeo
+          socialRows.push({
+            user_id: user.id,
+            social_account_id: acc.id,
+            company_ref: fileId,
+            platform: acc.platform,
+            media_url: publicUrl,
+            media_type: type,
+            filename,
+            caption: messageText || null,
+            status: 'queued',
+          });
+        });
+      };
+
       // TODO: Se saveName foi fornecido, salvar lista permanentemente
       if (saveName) {
         const contactsToSave = await Promise.all(
@@ -152,6 +204,8 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
             const { data: { publicUrl } } = supabase.storage
               .from('whatsapp-files')
               .getPublicUrl(filePath);
+
+            queueSocial(fileId, uploadFile.name, publicUrl);
 
             return {
               phone,
@@ -225,10 +279,25 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
             file_type: sendAsSticker ? 'sticker' : (sendAsDocument ? 'document' : undefined)
           } as any);
 
+          queueSocial(fileId, uploadFile.name, publicUrl);
+
           successCount++;
         }
       } else {
         successCount = validContacts.length;
+      }
+
+      // Insere a fila social apenas se o módulo estiver marcado
+      if (postToSocial && socialRows.length > 0) {
+        const { error: socialError } = await (supabase as any)
+          .from('social_posts')
+          .insert(socialRows.map((r) => ({ ...r, campaign_id: campaign.id })));
+        if (socialError) {
+          toast.error(`Fila social não criada: ${socialError.message}`);
+        } else {
+          const queuedSocial = socialRows.filter((r) => r.status === 'queued').length;
+          toast.success(`${queuedSocial} publicação(ões) social(is) na fila`);
+        }
       }
 
       toast.success(`${successCount} mensagens adicionadas à fila!`);
@@ -335,6 +404,19 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
                 />
                 <Label htmlFor="sendAsSticker" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                   Enviar como figurinha
+                </Label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="postToSocial"
+                  checked={postToSocial}
+                  onChange={(e) => setPostToSocial(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                />
+                <Label htmlFor="postToSocial" className="text-sm font-medium leading-none">
+                  Publicar também nas redes sociais (empresas com o serviço ativo)
                 </Label>
               </div>
             </div>
