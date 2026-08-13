@@ -24,6 +24,7 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
   const [blacklistInput, setBlacklistInput] = useState("");
   const [sendAsDocument, setSendAsDocument] = useState(false);
   const [sendAsSticker, setSendAsSticker] = useState(false);
+  const [postToSocial, setPostToSocial] = useState(false);
   const queryClient = useQueryClient();
 
   const addToBlacklist = useMutation({
