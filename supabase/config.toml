@@ -29,3 +29,9 @@ verify_jwt = false
 
 [functions.wa-test-driver]
 verify_jwt = true
+
+[functions.publish-social]
+verify_jwt = true
+
+[functions.social-connect]
+verify_jwt = true
