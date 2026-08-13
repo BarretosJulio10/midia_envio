@@ -128,6 +128,57 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
         return;
       }
 
+      // ---- Módulo social (opcional). Se desmarcado, nada abaixo executa. ----
+      const socialRows: any[] = [];
+      let socialAccounts: any[] = [];
+      if (postToSocial) {
+        const { data: accs } = await (supabase as any)
+          .from('social_accounts').select('*').eq('enabled', true);
+        socialAccounts = accs ?? [];
+        if (socialAccounts.length === 0) {
+          toast.warning("Nenhuma empresa com rede social ativa — nada será publicado.");
+        }
+        // Empresas bloqueadas na blacklist entram como "blocked" (visível, nunca publica)
+        Object.keys(csvData).forEach((id) => {
+          if (!blacklistedIds.has(id) && !blacklistedNumbers.has(csvData[id])) return;
+          socialAccounts.filter((a) => a.company_ref === id).forEach((acc) => {
+            socialRows.push({
+              user_id: user.id,
+              social_account_id: acc.id,
+              company_ref: id,
+              platform: acc.platform,
+              media_type: 'image',
+              caption: messageText || null,
+              status: 'blocked',
+              error_message: 'Empresa na blacklist',
+            });
+          });
+        });
+      }
+
+      const socialMediaType = (name: string) =>
+        /\.(mp4|mov|webm|m4v|3gp|mkv|avi)$/i.test(name) ? 'video'
+          : /\.(jpe?g|png|gif|bmp|webp|heic|heif)$/i.test(name) ? 'image' : null;
+
+      const queueSocial = (fileId: string, filename: string, publicUrl: string) => {
+        if (!postToSocial) return;
+        const type = socialMediaType(filename);
+        socialAccounts.filter((a) => a.company_ref === fileId).forEach((acc) => {
+          if (!type) return; // Meta só publica imagem ou vídeo
+          socialRows.push({
+            user_id: user.id,
+            social_account_id: acc.id,
+            company_ref: fileId,
+            platform: acc.platform,
+            media_url: publicUrl,
+            media_type: type,
+            filename,
+            caption: messageText || null,
+            status: 'queued',
+          });
+        });
+      };
+
       // TODO: Se saveName foi fornecido, salvar lista permanentemente
       if (saveName) {
         const contactsToSave = await Promise.all(
