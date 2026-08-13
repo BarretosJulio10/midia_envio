@@ -406,6 +406,19 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
                   Enviar como figurinha
                 </Label>
               </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="postToSocial"
+                  checked={postToSocial}
+                  onChange={(e) => setPostToSocial(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                />
+                <Label htmlFor="postToSocial" className="text-sm font-medium leading-none">
+                  Publicar também nas redes sociais (empresas com o serviço ativo)
+                </Label>
+              </div>
             </div>
           </div>
 
