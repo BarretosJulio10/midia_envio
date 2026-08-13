@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import Auth from "./components/Auth";
 import Dashboard from "./pages/Dashboard";
 import AdminDrivers from "./pages/AdminDrivers";
+import FacebookCallback from "./pages/FacebookCallback";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -51,6 +52,7 @@ const App = () => {
           <Routes>
             <Route path="/" element={session ? <Dashboard /> : <Auth />} />
             <Route path="/admin/drivers" element={session ? <AdminDrivers /> : <Auth />} />
+            <Route path="/oauth/facebook" element={<FacebookCallback />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

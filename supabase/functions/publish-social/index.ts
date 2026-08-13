@@ -85,9 +85,13 @@ Deno.serve(async (req) => {
       }).eq('id', post.id);
       published = 1;
     } catch (err: any) {
+      const raw = String(err?.message ?? err);
+      const expired = /OAuthException|expired|Session has expired|code":\s*190|Error validating access token/i.test(raw);
       await supabase.from('social_posts').update({
         status: 'failed',
-        error_message: String(err?.message ?? err).slice(0, 500),
+        error_message: (expired
+          ? 'Token expirado ou inválido: reconecte a conta em Redes Sociais. '
+          : '') + raw.slice(0, 400),
       }).eq('id', post.id);
       failed = 1;
     }
