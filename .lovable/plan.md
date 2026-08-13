@@ -1,53 +1,53 @@
-# Plan: Social Media Posting Module Feasibility and Architecture
+# Plano: Estudo de Viabilidade e Arquitetura do Módulo de Postagem em Redes Sociais
 
-## Objective
-Analyze the feasibility of adding a social media posting module (similar to mLabs) to the existing WhatsApp messaging architecture, allowing centralized management for multiple companies to post on Facebook and Instagram while maintaining the current WhatsApp functionality and blacklist rules.
+## Objetivo
+Analisar a viabilidade de adicionar um módulo de postagem em redes sociais (similar ao mLabs) à arquitetura atual de mensagens do WhatsApp, permitindo o gerenciamento centralizado para várias empresas postarem no Facebook e Instagram, mantendo a funcionalidade atual do WhatsApp e as regras de blacklist.
 
-## Analysis of Current Architecture
-- **Tech Stack:** React (Vite), Supabase (Database, Storage, Edge Functions).
-- **Current Flow:** Users upload media, add text, and send to WhatsApp clients (individual or groups) using various API drivers (FZAP, Evolution Go).
-- **Data Model:** Centralized around messaging queues and client lists (with blacklists).
-- **Multi-tenancy:** The system already supports multiple configurations (drivers/api keys) for different integrations.
+## Análise da Arquitetura Atual
+- **Stack Tecnológica:** React (Vite), Supabase (Banco de Dados, Storage, Edge Functions).
+- **Fluxo Atual:** Usuários fazem upload de mídia, adicionam texto e enviam para clientes do WhatsApp (individuais ou grupos) usando vários drivers de API (FZAP, Evolution Go).
+- **Modelo de Dados:** Centralizado em filas de mensagens e listas de clientes (com blacklists).
+- **Multitenancy:** O sistema já suporta múltiplas configurações (drivers/chaves de API) para diferentes integrações.
 
-## Proposed Module: Social Media Poster
-A new independent module that leverages the existing media management and blacklist logic but targets Meta APIs (Facebook/Instagram).
+## Módulo Proposto: Social Media Poster
+Um novo módulo independente que aproveita o gerenciamento de mídia e a lógica de blacklist existentes, mas tem como alvo as APIs da Meta (Facebook/Instagram).
 
-### Technical Components
-1. **Database Schema Extensions:**
-   - `social_configs`: Store credentials (Page Access Tokens, Instagram Business Account IDs).
-   - `social_posts`: Track status of posts (pending, scheduled, posted, failed).
-   - Link existing `saved_lists` and `blacklists` to social posting logic.
+### Componentes Técnicos
+1. **Extensões do Esquema do Banco de Dados:**
+   - `social_configs`: Armazenar credenciais (Tokens de Acesso de Página, IDs de Conta Comercial do Instagram).
+   - `social_posts`: Acompanhar o status das postagens (pendente, agendado, postado, falhou).
+   - Vincular `saved_lists` e `blacklists` existentes à lógica de postagem social.
 
 2. **Backend (Supabase Edge Functions):**
-   - New function `post-social-media`: Handles the OAuth-based posting to Facebook Graph API.
-   - Reuse `media-type` helpers to ensure assets meet Meta's requirements.
+   - Nova função `post-social-media`: Lida com a postagem baseada em OAuth para a API do Facebook Graph.
+   - Reutilizar auxiliares de `media-type` para garantir que os ativos atendam aos requisitos da Meta.
 
-3. **Frontend Additions:**
-   - **Social Dashboard:** A separate view to manage posts and connect social accounts.
-   - **Integrated Composer:** Extend `UploadSection` or create a variant that allows selecting "WhatsApp", "Facebook", "Instagram" as targets.
+3. **Adições no Frontend:**
+   - **Dashboard Social:** Uma visualização separada para gerenciar postagens e conectar contas sociais.
+   - **Compositor Integrado:** Estender o `UploadSection` ou criar uma variante que permita selecionar "WhatsApp", "Facebook", "Instagram" como destinos.
 
-### Key Constraints & Security
-- **Strict Separation:** The social module will be "opt-in" and run in parallel without modifying the critical `send-messages` path for WhatsApp.
-- **Facebook/Instagram API Requirements:**
-  - Requires a Facebook App with `pages_manage_posts`, `pages_read_engagement`, and `instagram_basic`, `instagram_content_publish` permissions.
-  - Requires permanent Page Access Tokens for automated posting.
+### Principais Restrições e Segurança
+- **Separação Estrita:** O módulo social será "opcional" (opt-in) e funcionará em paralelo sem modificar o caminho crítico de `send-messages` do WhatsApp.
+- **Requisitos da API do Facebook/Instagram:**
+  - Requer um Aplicativo do Facebook com permissões `pages_manage_posts`, `pages_read_engagement`, `instagram_basic` e `instagram_content_publish`.
+  - Requer Tokens de Acesso de Página permanentes para postagem automatizada.
 
-## Implementation Roadmap
+## Cronograma de Implementação
 
-### Phase 1: Foundation (Database & Auth)
-- Create tables for social credentials and post history.
-- Implement the "Connect with Facebook" flow to obtain tokens.
+### Fase 1: Fundação (Banco de Dados e Autenticação)
+- Criar tabelas para credenciais sociais e histórico de postagens.
+- Implementar o fluxo "Conectar com Facebook" para obter tokens.
 
-### Phase 2: Core Posting Logic
-- Develop the Edge Function to handle media uploads to Facebook/Instagram.
-- Implement logic to check against existing blacklists (e.g., if a post mentions a restricted term or is targeted at specific segments).
+### Fase 2: Lógica Central de Postagem
+- Desenvolver a Edge Function para lidar com uploads de mídia para Facebook/Instagram.
+- Implementar lógica para verificar contra blacklists existentes.
 
-### Phase 3: UI Integration
-- Add a "Social Media" tab in the Dashboard.
-- Enable cross-posting: One upload, multiple targets (WhatsApp + Social).
+### Fase 3: Integração da Interface (UI)
+- Adicionar uma aba "Redes Sociais" no Dashboard.
+- Permitir postagem cruzada: Um upload, múltiplos destinos (WhatsApp + Social).
 
-## Feasibility Conclusion
-**High Feasibility.** The current architecture using Supabase Edge Functions is ideal for this. We can treat "Facebook" and "Instagram" as new "Drivers" in the existing driver architecture or as a separate parallel service that consumes the same media/text assets.
+## Conclusão de Viabilidade
+**Alta Viabilidade.** A arquitetura atual usando Supabase Edge Functions é ideal para isso. Podemos tratar "Facebook" e "Instagram" como novos "Drivers" na arquitetura de drivers existente ou como um serviço paralelo separado que consome os mesmos ativos de mídia/texto.
 
 ---
-*Note: This plan is for architectural analysis and approval. No code changes will be made to the production WhatsApp system during this phase.*
+*Nota: Este plano é para análise arquitetônica e aprovação. Nenhuma alteração de código será feita no sistema de produção do WhatsApp durante esta fase.*
