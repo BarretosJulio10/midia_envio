@@ -205,6 +205,8 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
               .from('whatsapp-files')
               .getPublicUrl(filePath);
 
+            queueSocial(fileId, uploadFile.name, publicUrl);
+
             return {
               phone,
               message_text: messageText,
