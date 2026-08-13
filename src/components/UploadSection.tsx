@@ -279,10 +279,25 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
             file_type: sendAsSticker ? 'sticker' : (sendAsDocument ? 'document' : undefined)
           } as any);
 
+          queueSocial(fileId, uploadFile.name, publicUrl);
+
           successCount++;
         }
       } else {
         successCount = validContacts.length;
+      }
+
+      // Insere a fila social apenas se o módulo estiver marcado
+      if (postToSocial && socialRows.length > 0) {
+        const { error: socialError } = await (supabase as any)
+          .from('social_posts')
+          .insert(socialRows.map((r) => ({ ...r, campaign_id: campaign.id })));
+        if (socialError) {
+          toast.error(`Fila social não criada: ${socialError.message}`);
+        } else {
+          const queuedSocial = socialRows.filter((r) => r.status === 'queued').length;
+          toast.success(`${queuedSocial} publicação(ões) social(is) na fila`);
+        }
       }
 
       toast.success(`${successCount} mensagens adicionadas à fila!`);
