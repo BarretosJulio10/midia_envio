@@ -231,12 +231,12 @@ export default function EmailComposer({ listsVersion, onQueued }: { listsVersion
               {EMAIL_TEMPLATES.map((t) => (
                 <button key={t.id} type="button" onClick={() => setTemplate(t.id)}
                   className={`overflow-hidden rounded-md border text-left transition ${template === t.id ? "border-primary ring-2 ring-primary" : "border-border/50 hover:border-primary/60"}`}>
-                  <iframe title={t.name} sandbox="" tabIndex={-1} className="pointer-events-none h-28 w-[400%] origin-top-left scale-25 border-0"
-                    style={{ transform: "scale(0.25)", height: 448 }}
-                    srcDoc={buildEmailHtml({ ...content, template: t.id, title: title || "Seu título aqui", bodyText: bodyText || "Texto da mensagem", buttonText: "Ver oferta", buttonUrl: "https://exemplo.com" })} />
-                  <div className="-mt-[336px] border-t border-border/50 bg-card px-2 py-1">
-                    <p className="text-xs font-semibold">{t.name}</p>
+                  <div className="relative h-32 overflow-hidden bg-muted">
+                    <iframe title={t.name} sandbox="" tabIndex={-1} className="pointer-events-none absolute left-0 top-0 border-0"
+                      style={{ width: 600, height: 900, transform: "scale(0.3)", transformOrigin: "top left" }}
+                      srcDoc={buildEmailHtml({ ...content, template: t.id, title: title || "Seu título aqui", bodyText: bodyText || "Texto da mensagem", buttonText: "Ver oferta", buttonUrl: "https://exemplo.com" })} />
                   </div>
+                  <p className="border-t border-border/50 bg-card px-2 py-1 text-xs font-semibold">{t.name}</p>
                 </button>
               ))}
             </div>
