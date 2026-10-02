@@ -13,6 +13,7 @@ import { Mail, Send, FlaskConical, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import EmailPreview from "./EmailPreview";
+import { EMAIL_TEMPLATES, buildEmailHtml, type EmailTemplateId } from "@/lib/emailTemplate";
 import { parseEmails, type EmailList } from "./emailLists";
 import { loadEmailCfg, type EmailCfg, defaultCfg } from "./EmailConfig";
 
@@ -34,6 +35,9 @@ export default function EmailComposer({ listsVersion, onQueued }: { listsVersion
   const [newName, setNewName] = useState("");
   const [subject, setSubject] = useState("");
   const [bodyText, setBodyText] = useState("");
+  const [template, setTemplate] = useState<EmailTemplateId>("promo");
+  const [title, setTitle] = useState("");
+  const [accentColor, setAccentColor] = useState("#0d9488");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [uploadingImg, setUploadingImg] = useState(false);
   const [useButton, setUseButton] = useState(false);
@@ -56,6 +60,7 @@ export default function EmailComposer({ listsVersion, onQueued }: { listsVersion
     buttonText: useButton ? buttonText : null,
     buttonUrl: useButton ? buttonUrl : null,
     fromName: cfg.from_name,
+    template, title, accentColor,
   };
 
   const onImage = async (f?: File | null) => {
@@ -66,10 +71,10 @@ export default function EmailComposer({ listsVersion, onQueued }: { listsVersion
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Não autenticado");
-      const path = `${user.id}/email/${Date.now()}_${f.name.replace(/[^\w.\-]/g, "_")}`;
-      const { error } = await supabase.storage.from("whatsapp-files").upload(path, f);
+      const path = `${user.id}/${Date.now()}_${f.name.replace(/[^\w.\-]/g, "_")}`;
+      const { error } = await supabase.storage.from("email-assets").upload(path, f);
       if (error) throw error;
-      setImageUrl(supabase.storage.from("whatsapp-files").getPublicUrl(path).data.publicUrl);
+      setImageUrl(supabase.storage.from("email-assets").getPublicUrl(path).data.publicUrl);
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -110,7 +115,8 @@ export default function EmailComposer({ listsVersion, onQueued }: { listsVersion
     });
     if (!r.success) { toast.error(r.error.errors[0].message); return false; }
     if (useButton && !buttonText.trim()) { toast.error("Informe o texto do botão"); return false; }
-    if (!bodyText.trim() && !imageUrl) { toast.error("Adicione um texto ou uma imagem"); return false; }
+    if (title.length > 150) { toast.error("Título até 150 caracteres"); return false; }
+    if (!bodyText.trim() && !imageUrl && !title.trim()) { toast.error("Adicione um texto ou uma imagem"); return false; }
     return true;
   };
 
@@ -166,6 +172,7 @@ export default function EmailComposer({ listsVersion, onQueued }: { listsVersion
         button_text: useButton ? buttonText.trim() : null,
         button_url: useButton ? buttonUrl.trim() : null,
         list_id: useListId, total: emails.length,
+        template, title: title.trim() || null, accent_color: accentColor,
       }).select().single();
       if (ce) throw ce;
 
@@ -216,6 +223,35 @@ export default function EmailComposer({ listsVersion, onQueued }: { listsVersion
                 <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nome para salvar esta lista (opcional)" />
               </div>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Modelo do e-mail</Label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {EMAIL_TEMPLATES.map((t) => (
+                <button key={t.id} type="button" onClick={() => setTemplate(t.id)}
+                  className={`overflow-hidden rounded-md border text-left transition ${template === t.id ? "border-primary ring-2 ring-primary" : "border-border/50 hover:border-primary/60"}`}>
+                  <div className="relative h-32 overflow-hidden bg-muted">
+                    <iframe title={t.name} sandbox="" tabIndex={-1} className="pointer-events-none absolute left-0 top-0 border-0"
+                      style={{ width: 600, height: 900, transform: "scale(0.3)", transformOrigin: "top left" }}
+                      srcDoc={buildEmailHtml({ ...content, template: t.id, title: title || "Seu título aqui", bodyText: bodyText || "Texto da mensagem", buttonText: "Ver oferta", buttonUrl: "https://exemplo.com" })} />
+                  </div>
+                  <p className="border-t border-border/50 bg-card px-2 py-1 text-xs font-semibold">{t.name}</p>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">{EMAIL_TEMPLATES.find((t) => t.id === template)?.description}</p>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+            <div className="space-y-1">
+              <Label>Título (destaque)</Label>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={150} placeholder="Ex: 30% OFF só esta semana" />
+            </div>
+            <div className="space-y-1">
+              <Label>Cor principal</Label>
+              <Input type="color" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} className="h-10 w-16 p-1" />
+            </div>
           </div>
 
           <div className="space-y-1">
