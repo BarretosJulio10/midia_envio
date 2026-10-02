@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { LogOut, Settings, Send, Users, Share2 } from "lucide-react";
+import { LogOut, Settings, Send, Users, Share2, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ConfigDialog from "@/components/ConfigDialog";
@@ -9,6 +9,7 @@ import SavedListsManager from "@/components/SavedListsManager";
 import GroupSender from "@/components/GroupSender";
 import IndividualSender from "@/components/IndividualSender";
 import SocialSender from "@/components/SocialSender";
+import EmailSender from "@/components/EmailSender";
 import ActiveDriverBadge from "@/components/ActiveDriverBadge";
 import { useNavigate } from "react-router-dom";
 
@@ -72,7 +73,7 @@ export default function Dashboard() {
 
       <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8">
         <Tabs defaultValue="individual" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6 sm:mb-8">
+          <TabsList className="grid w-full grid-cols-4 mb-6 sm:mb-8">
             <TabsTrigger value="individual" className="gap-2">
               <Send className="h-4 w-4" />
               <span className="hidden sm:inline">Envio</span> Individual
@@ -84,6 +85,10 @@ export default function Dashboard() {
             <TabsTrigger value="social" className="gap-2">
               <Share2 className="h-4 w-4" />
               <span className="hidden sm:inline">Redes</span> Sociais
+            </TabsTrigger>
+            <TabsTrigger value="email" className="gap-2">
+              <Mail className="h-4 w-4" />
+              E-mail
             </TabsTrigger>
           </TabsList>
 
@@ -97,6 +102,10 @@ export default function Dashboard() {
 
           <TabsContent value="social">
             <SocialSender />
+          </TabsContent>
+
+          <TabsContent value="email">
+            <EmailSender />
           </TabsContent>
         </Tabs>
       </main>
