@@ -98,3 +98,11 @@ Formato: [MAJOR.MINOR.PATCH] - YYYY-MM-DD
 - Frontend: nova aba "Redes Sociais" no Dashboard (contas por empresa + fila de publicações) e checkbox opcional "Publicar também nas redes sociais" no UploadSection.
 - Blacklist reaproveitada: empresa bloqueada gera post com status `blocked` e nunca publica.
 - Pendente: deploy das funções `publish-social` e `social-connect` (token do Supabase expirado).
+
+## 2026-10-02 — Disparador de E-mail (Resend) + Conectar com Facebook
+- Nova aba "E-mail": listas salvas (CSV só com email, editar/excluir), editor com imagem, texto e botão com link, prévia ao vivo (computador/celular), envio de teste, blacklist própria, fila 1 a 1 com intervalo/pausa.
+- Tabelas novas: email_lists, email_config, email_campaigns, email_messages, email_blacklist (SQL em supabase/sql/email_module.sql). Nenhuma tabela existente alterada.
+- Edge function send-emails (send_next, send_test, retry). Precisa do secret RESEND_API_KEY no projeto Supabase.
+- Template único src/lib/emailTemplate.ts (cópia em _shared/email-template.ts) usado na prévia e no envio.
+- Redes sociais: botão "Conectar com Facebook" (OAuth), rota /oauth/facebook, colunas page_name/ig_username/connected_via. Precisa META_APP_ID/META_APP_SECRET.
+- Pendente: deploy de send-emails, social-connect e publish-social (token de deploy do Supabase expirado).
