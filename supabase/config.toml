@@ -35,3 +35,6 @@ verify_jwt = true
 
 [functions.social-connect]
 verify_jwt = true
+
+[functions.send-emails]
+verify_jwt = true
