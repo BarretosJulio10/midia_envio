@@ -73,6 +73,7 @@ Deno.serve(async (req) => {
           const id = await sendResend(from, email, {
             subject: camp.subject, bodyText: camp.body_text, imageUrl: camp.image_url,
             buttonText: camp.button_text, buttonUrl: camp.button_url, fromName: cfg?.from_name,
+            template: camp.template, title: camp.title, accentColor: camp.accent_color,
           });
           await admin.from("email_messages").update({ status: "sent", resend_id: id, sent_at: new Date().toISOString() }).eq("id", msg.id);
         } catch (e) {
