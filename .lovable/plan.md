@@ -20,3 +20,10 @@ No seu Supabase não existem as chaves `META_APP_ID` e `META_APP_SECRET`. Sem el
 - `social-connect` ação `oauth_url` lança erro quando `META_APP_ID` falta; o front não lê `error.context`.
 - Ajuste em `SocialAccounts.tsx`: ler o corpo do `FunctionsHttpError` e mostrar no aviso.
 - Nenhuma alteração no WhatsApp ou e-mail.
+
+## Extra: vídeo no e-mail
+Gmail e Outlook não tocam vídeo dentro do e-mail, e anexar vídeo faz o e-mail cair no spam ou ser recusado (limite de tamanho). O jeito profissional (igual mLabs/Mailchimp):
+1. No disparo, além de "Imagem", aparece a opção "Vídeo".
+2. O vídeo é salvo na pasta pública de e-mails.
+3. O e-mail mostra uma imagem de capa com um botão de "play"; ao clicar, o cliente assiste o vídeo no navegador.
+4. A capa pode ser uma imagem que você escolhe (se não escolher, uso uma capa padrão com o botão play).
