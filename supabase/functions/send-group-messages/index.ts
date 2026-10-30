@@ -40,6 +40,9 @@ Deno.serve(async (req) => {
 
     for (let i = 0; i < batch.length; i++) {
       const msg = batch[i];
+      // Toda linha de group_messages tem grupo como destino: garante o JID completo,
+      // inclusive para listas antigas salvas sem o sufixo.
+      const to = msg.group_id.includes('@') ? msg.group_id : `${msg.group_id}@g.us`;
       try {
         await supabase.from('group_messages').update({ status: 'sending', attempts: msg.attempts + 1 }).eq('id', msg.id);
 
@@ -55,17 +58,17 @@ Deno.serve(async (req) => {
           );
           const caption = (type === 'audio' || type === 'sticker') ? '' : (msg.caption ?? '');
           await driver.sendMedia({
-            token, to: msg.group_id, mediaUrl: signed!.signedUrl, type,
+            token, to, mediaUrl: signed!.signedUrl, type,
             caption, fileName: filename,
           });
         } else if (msg.caption) {
-          await driver.sendText({ token, to: msg.group_id, text: msg.caption });
+          await driver.sendText({ token, to, text: msg.caption });
         }
 
         await supabase.from('group_messages').update({ status: 'sent', sent_at: new Date().toISOString(), error_message: null }).eq('id', msg.id);
         sent++;
       } catch (err: any) {
-        await supabase.from('group_messages').update({ status: 'failed', error_message: err.message }).eq('id', msg.id);
+        await supabase.from('group_messages').update({ status: 'failed', error_message: String(err?.message ?? err).slice(0, 500) }).eq('id', msg.id);
         failed++;
       }
       if (i < batch.length - 1) {

@@ -23,3 +23,5 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Volable: permite a configuracao publica do Supabase em outros hosts
+!.env.production

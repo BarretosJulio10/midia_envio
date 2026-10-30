@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Send, Upload, Trash2, RefreshCw, Loader2 } from "lucide-react";
+import { Send, Upload, Trash2, RefreshCw, Loader2, Square } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import SavedGroupListsManager from "./SavedGroupListsManager";
 
@@ -35,6 +35,7 @@ export default function GroupSender() {
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const [caption, setCaption] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<string[]>([]);
@@ -340,6 +341,25 @@ export default function GroupSender() {
     }
   };
 
+  const finishSending = (totalSent: number, totalFailed: number) => {
+    sendingRef.current = false;
+    setSending(false);
+    loadMessages();
+
+    if (totalFailed > 0) {
+      toast.warning(`Envio concluído: ${totalSent} enviadas e ${totalFailed} com falha.`);
+    } else if (totalSent > 0) {
+      toast.success(`Envio concluído: ${totalSent} mensagens enviadas.`);
+    }
+  };
+
+  const stopSending = () => {
+    sendingRef.current = false;
+    setSending(false);
+    loadMessages();
+    toast.info("Envio interrompido. As mensagens restantes continuam na fila.");
+  };
+
   const startSending = async () => {
     const queued = messages.filter(m => m.status === 'queued');
     if (queued.length === 0) {
@@ -348,37 +368,57 @@ export default function GroupSender() {
     }
 
     setSending(true);
+    sendingRef.current = true;
     toast.success("Envio de mensagens em grupo iniciado!");
 
-    try {
-      const { data, error } = await supabase.functions.invoke('send-group-messages');
+    const pauseMs = Math.max(1000, pauseDuration * 1000);
+    let totalSent = 0;
+    let totalFailed = 0;
 
-      if (error) {
-        console.error('Raw Supabase Edge Function Error:', error);
-        if (error.context && typeof error.context.json === 'function') {
+    // O servidor processa um lote por chamada; o loop continua até a fila acabar.
+    const sendBatch = async () => {
+      if (!sendingRef.current) return;
+
+      try {
+        const { data, error } = await supabase.functions.invoke('send-group-messages');
+
+        if (error) {
+          console.error('Raw Supabase Edge Function Error:', error);
+          let errorMessage = error.message || 'Erro ao enviar mensagens';
+          if (error.context && typeof error.context.json === 'function') {
             try {
-                const errorBody = await error.context.json();
-                throw new Error(errorBody.error || errorBody.message || error.message);
-            } catch (e) {
-                // Parsing fallback
+              const errorBody = await error.context.json();
+              errorMessage = errorBody.error || errorBody.message || errorMessage;
+            } catch {
+              // usa a mensagem original
             }
-        } else if (error.context && error.context.error) {
-            throw new Error(error.context.error);
+          } else if (error.context && error.context.error) {
+            errorMessage = error.context.error;
+          }
+          throw new Error(errorMessage);
         }
-        throw error;
-      }
 
-      if (data.success) {
-        toast.success(data.message || 'Envio iniciado! Acompanhe o progresso em tempo real.');
-      } else {
-        toast.error(data.error || 'Erro ao enviar mensagens');
+        if (!data?.success) {
+          throw new Error(data?.error || 'Erro ao enviar mensagens');
+        }
+
+        totalSent += data.sent || 0;
+        totalFailed += data.failed || 0;
+
+        if (data.moreRemaining && sendingRef.current) {
+          setTimeout(sendBatch, pauseMs);
+        } else {
+          finishSending(totalSent, totalFailed);
+        }
+      } catch (error: any) {
+        sendingRef.current = false;
+        setSending(false);
+        loadMessages();
+        toast.error(error.message || 'Erro ao enviar mensagens');
       }
-    } catch (error: any) {
-      const errorMessage = error.message || 'Erro ao enviar mensagens';
-      toast.error(errorMessage);
-    } finally {
-      setSending(false);
-    }
+    };
+
+    sendBatch();
   };
 
   const cleanupAfterSending = async () => {
@@ -715,6 +755,12 @@ export default function GroupSender() {
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {sending ? 'Enviando...' : 'Iniciar Envio'}
           </Button>
+          {sending && (
+            <Button onClick={stopSending} variant="outline" className="gap-2">
+              <Square className="h-4 w-4" />
+              Parar
+            </Button>
+          )}
           <Button onClick={clearAll} variant="destructive" className="gap-2">
             <Trash2 className="h-4 w-4" />
             Limpar Tudo
@@ -750,6 +796,11 @@ export default function GroupSender() {
                       >
                         {msg.status}
                       </Badge>
+                      {msg.error_message && (msg.status === 'failed' || msg.status === 'permanently_failed') && (
+                        <p className="mt-1 max-w-[240px] break-words text-xs text-destructive">
+                          {msg.error_message}
+                        </p>
+                      )}
                     </td>
                     <td className="p-2">{msg.attempts}</td>
                     <td className="p-2 text-sm text-muted-foreground">
