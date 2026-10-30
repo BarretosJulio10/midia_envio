@@ -44,10 +44,17 @@ export class FzapDriver implements WhatsAppDriver {
   private userHeaders(token: string) {
     return { 'Content-Type': 'application/json', 'token': token };
   }
-  // `check` faz a FZap validar o destino via IsOnWhatsApp, que só entende número.
-  // Grupo vai como JID (@g.us) e precisa ser enviado sem essa validação.
+  // Grupo vai como JID (@g.us) e não é um número: a validação via IsOnWhatsApp
+  // responde 502 "WhatsApp number lookup returned no response" para grupos.
   private isGroupJid(to: string) {
     return to.includes('@g.us');
+  }
+  // `check` só é enviado para número. Para grupo o campo é OMITIDO do payload
+  // (default false na spec v1.23.0), e não enviado como `false`, porque builds
+  // da FZap disparam o lookup apenas pela presença do campo.
+  private withCheck<T extends Record<string, unknown>>(body: T, to: string): T {
+    if (!this.isGroupJid(to)) body.check = true;
+    return body;
   }
 
   async createInstance({ instanceName, userId }: { instanceName: string; userId: string }) {
@@ -139,10 +146,11 @@ export class FzapDriver implements WhatsAppDriver {
   }
 
   async sendText({ token, to, text }: { token: string; to: string; text: string }) {
+    const body = this.withCheck({ phone: to, body: text }, to);
     const r = await fetch(this.url('/chat/send/text'), {
       method: 'POST',
       headers: this.userHeaders(token),
-      body: JSON.stringify({ phone: to, body: text, check: !this.isGroupJid(to) }),
+      body: JSON.stringify(body),
     });
     const txt = await r.text();
     if (!r.ok) throw new Error(`fzap sendText ${r.status}: ${txt.slice(0, 300)}`);
@@ -193,13 +201,12 @@ export class FzapDriver implements WhatsAppDriver {
 
       // 4) Monta payload conforme MessageSticker da FZAP v1.23.0
       const dataUrl = `data:image/webp;base64,${bytesToBase64(webp)}`;
-      const body = {
+      const body = this.withCheck({
         phone: p.to,
         sticker: dataUrl,
         mimeType: 'image/webp',
         pngThumbnail: `data:image/png;base64,${bytesToBase64(pngThumbnail)}`,
-        check: !this.isGroupJid(p.to),
-      };
+      }, p.to);
       console.log(
         `[fzap-sticker] POST /chat/send/sticker mimeType=image/webp ` +
         `payloadBytes=${dataUrl.length} thumbnailBytes=${pngThumbnail.length} kind=sticker`,
@@ -234,9 +241,9 @@ export class FzapDriver implements WhatsAppDriver {
       sticker:  { path: '/chat/send/sticker',  field: 'sticker' },
     };
     const m = map[p.type] ?? map.document;
-    const body: Record<string, unknown> = {
-      phone: p.to, [m.field]: p.mediaUrl, check: !this.isGroupJid(p.to),
-    };
+    const body: Record<string, unknown> = this.withCheck(
+      { phone: p.to, [m.field]: p.mediaUrl }, p.to,
+    );
 
     if (p.caption && p.type !== 'audio' && p.type !== 'sticker') {
       body.caption = p.caption;

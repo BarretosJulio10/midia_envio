@@ -7,6 +7,15 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// A FZap devolve 502 "WhatsApp number lookup returned no response" quando não
+// consegue resolver o destino. O texto bruto não diz o que fazer, então a
+// orientação vai junto do erro salvo na fila.
+const describeGroupError = (raw: string) =>
+  /lookup returned no response/i.test(raw)
+    ? `${raw} — o destino do grupo não foi reconhecido. Verifique se o WhatsApp está conectado ` +
+      'e se a conta participa do grupo.'
+    : raw;
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
@@ -68,7 +77,10 @@ Deno.serve(async (req) => {
         await supabase.from('group_messages').update({ status: 'sent', sent_at: new Date().toISOString(), error_message: null }).eq('id', msg.id);
         sent++;
       } catch (err: any) {
-        await supabase.from('group_messages').update({ status: 'failed', error_message: String(err?.message ?? err).slice(0, 500) }).eq('id', msg.id);
+        const raw = String(err?.message ?? err);
+        await supabase.from('group_messages')
+          .update({ status: 'failed', error_message: describeGroupError(raw).slice(0, 500) })
+          .eq('id', msg.id);
         failed++;
       }
       if (i < batch.length - 1) {
