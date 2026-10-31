@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
       // Toda linha de group_messages tem grupo como destino: garante o JID completo,
       // inclusive para listas antigas salvas sem o sufixo.
       const to = msg.group_id.includes('@') ? msg.group_id : `${msg.group_id}@g.us`;
+      let note: string | null = null;
       try {
         await supabase.from('group_messages').update({ status: 'sending', attempts: msg.attempts + 1 }).eq('id', msg.id);
 
@@ -70,11 +71,33 @@ Deno.serve(async (req) => {
             token, to, mediaUrl: signed!.signedUrl, type,
             caption, fileName: filename,
           });
+        } else if (msg.message_type === 'menu') {
+          let rows: Array<{ title: string }> = [];
+          try { rows = typeof msg.menu_choices === 'string' ? JSON.parse(msg.menu_choices) : (msg.menu_choices ?? []); } catch { rows = []; }
+          rows = rows.filter((r) => r?.title);
+          if (!rows.length) throw new Error('Menu sem opções');
+          const text = msg.caption || 'Confira as opções abaixo:';
+          const fallback = () => driver.sendText({
+            token, to,
+            text: `${text}\n\n${rows.map((r, i) => `${i + 1}. ${r.title}`).join('\n')}${msg.footer_text ? `\n\n_${msg.footer_text}_` : ''}`,
+          });
+          if (typeof driver.sendList !== 'function') {
+            await fallback();
+            note = 'API ativa não suporta lista: enviado como texto numerado';
+          } else {
+            try {
+              await driver.sendList({ token, to, text, buttonText: msg.list_button || 'Ver opções', footer: msg.footer_text || undefined, rows });
+            } catch (e: any) {
+              if (!/sendList 403/.test(String(e?.message))) throw e;
+              await fallback();
+              note = 'Plano Fzap sem botões/listas (403): enviado como texto numerado';
+            }
+          }
         } else if (msg.caption) {
           await driver.sendText({ token, to, text: msg.caption });
         }
 
-        await supabase.from('group_messages').update({ status: 'sent', sent_at: new Date().toISOString(), error_message: null }).eq('id', msg.id);
+        await supabase.from('group_messages').update({ status: 'sent', sent_at: new Date().toISOString(), error_message: note }).eq('id', msg.id);
         sent++;
       } catch (err: any) {
         const raw = String(err?.message ?? err);
