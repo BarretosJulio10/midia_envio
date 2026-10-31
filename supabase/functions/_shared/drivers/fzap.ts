@@ -55,7 +55,7 @@ export class FzapDriver implements WhatsAppDriver {
   // o servidor chama IsOnWhatsApp e devolve 502 "WhatsApp number lookup returned
   // no response" para JID de grupo (@g.us).
   private withCheck<T extends Record<string, unknown>>(body: T, to: string): T {
-    if (!this.isGroupJid(to)) body.check = true;
+    if (!this.isGroupJid(to)) (body as Record<string, unknown>).check = true;
     return body;
   }
 
@@ -265,7 +265,7 @@ export class FzapDriver implements WhatsAppDriver {
       { phone: p.to, [m.field]: p.mediaUrl }, p.to,
     );
 
-    if (p.caption && p.type !== 'audio' && p.type !== 'sticker') {
+    if (p.caption && p.type !== 'audio') {
       body.caption = p.caption;
     }
     if (p.type === 'document') {
