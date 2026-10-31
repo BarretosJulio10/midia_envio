@@ -28,6 +28,7 @@ export interface WhatsAppDriver {
   sendText(p: { token: string; to: string; text: string }): Promise<void>;
   sendMedia(p: SendMediaInput): Promise<void>;
   fetchGroups(p: { token: string }): Promise<Array<{ id: string; name: string; participants?: number }>>;
+  sendList?(p: { token: string; to: string; text: string; buttonText: string; footer?: string; title?: string; rows: Array<{ title: string; desc?: string }> }): Promise<void>;
   testConnection?(): Promise<{ ok: boolean; message: string }>;
   checkNumber?(p: { token: string; phone: string }): Promise<{ exists: boolean; jid: string | null }>;
 }

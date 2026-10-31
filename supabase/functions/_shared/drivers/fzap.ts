@@ -187,6 +187,30 @@ export class FzapDriver implements WhatsAppDriver {
     }
   }
 
+  // POST /chat/send/list — campos conforme referência oficial (buttonText, text,
+  // footer, title, sections[].rows[].{rowId,title,desc}). Pode devolver 403 quando
+  // a licença não inclui botões/listas.
+  async sendList(p: { token: string; to: string; text: string; buttonText: string; footer?: string; title?: string; rows: Array<{ title: string; desc?: string }> }) {
+    const body: Record<string, unknown> = this.withCheck({
+      phone: p.to,
+      text: p.text,
+      buttonText: (p.buttonText || 'Ver opções').slice(0, 20),
+      sections: [{
+        title: (p.title || 'Opções').slice(0, 24),
+        rows: p.rows.slice(0, 10).map((r, i) => ({ rowId: `opt_${i + 1}`, title: r.title.slice(0, 24), desc: r.desc ?? '' })),
+      }],
+    }, p.to);
+    if (p.footer) body.footer = p.footer;
+    if (p.title) body.title = p.title;
+    const { ok, status, txt } = await this.postWithGroupRetry('/chat/send/list', body, p.token, p.to);
+    if (!ok) throw new Error(`fzap sendList ${status}: ${txt.slice(0, 300)}`);
+    let parsed: any = null;
+    try { parsed = JSON.parse(txt); } catch { /* não-JSON */ }
+    if (parsed && parsed.success === false) {
+      throw new Error(`fzap sendList recusou: ${parsed.error || parsed.message || txt.slice(0, 200)}`);
+    }
+  }
+
   async sendMedia(p: SendMediaInput) {
     if (p.type === 'sticker') {
       console.log(`[fzap-sticker] start to=${p.to} mediaUrl=${p.mediaUrl.slice(0, 80)}...`);
