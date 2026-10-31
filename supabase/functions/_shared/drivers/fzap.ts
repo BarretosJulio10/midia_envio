@@ -47,14 +47,44 @@ export class FzapDriver implements WhatsAppDriver {
   // Grupo vai como JID (@g.us) e não é um número: a validação via IsOnWhatsApp
   // responde 502 "WhatsApp number lookup returned no response" para grupos.
   private isGroupJid(to: string) {
-    return to.includes('@g.us');
+    return to.trim().toLowerCase().includes('@g.us');
   }
   // `check` só é enviado para número. Para grupo o campo é OMITIDO do payload
-  // (default false na spec v1.23.0), e não enviado como `false`, porque builds
-  // da FZap disparam o lookup apenas pela presença do campo.
+  // (default false na spec), e não enviado como `false`, porque o que dispara a
+  // validação na FZap é a presença do campo: presente com `true` ou com `false`,
+  // o servidor chama IsOnWhatsApp e devolve 502 "WhatsApp number lookup returned
+  // no response" para JID de grupo (@g.us).
   private withCheck<T extends Record<string, unknown>>(body: T, to: string): T {
     if (!this.isGroupJid(to)) body.check = true;
     return body;
+  }
+
+  // O 502 "lookup returned no response" também aparece quando a consulta ao
+  // WhatsApp não volta a tempo. Em envio para grupo (sem `check` no payload)
+  // isso é transitório: uma nova tentativa resolve sem alterar o conteúdo.
+  private async postWithGroupRetry(
+    path: string,
+    body: Record<string, unknown>,
+    token: string,
+    to: string,
+  ) {
+    const doPost = () => fetch(this.url(path), {
+      method: 'POST',
+      headers: this.userHeaders(token),
+      body: JSON.stringify(body),
+    });
+
+    let r = await doPost();
+    let txt = await r.text();
+
+    if (r.status === 502 && this.isGroupJid(to) && /lookup returned no response/i.test(txt)) {
+      console.log(`[fzap] ${path} 502 (lookup) para grupo ${to} — nova tentativa em 2s`);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      r = await doPost();
+      txt = await r.text();
+    }
+
+    return { ok: r.ok, status: r.status, txt };
   }
 
   async createInstance({ instanceName, userId }: { instanceName: string; userId: string }) {
@@ -147,13 +177,8 @@ export class FzapDriver implements WhatsAppDriver {
 
   async sendText({ token, to, text }: { token: string; to: string; text: string }) {
     const body = this.withCheck({ phone: to, body: text }, to);
-    const r = await fetch(this.url('/chat/send/text'), {
-      method: 'POST',
-      headers: this.userHeaders(token),
-      body: JSON.stringify(body),
-    });
-    const txt = await r.text();
-    if (!r.ok) throw new Error(`fzap sendText ${r.status}: ${txt.slice(0, 300)}`);
+    const { ok, status, txt } = await this.postWithGroupRetry('/chat/send/text', body, token, to);
+    if (!ok) throw new Error(`fzap sendText ${status}: ${txt.slice(0, 300)}`);
     // HTTP 200 com success:false também é falha real
     let parsed: any = null;
     try { parsed = JSON.parse(txt); } catch { /* body não-JSON */ }
@@ -212,22 +237,17 @@ export class FzapDriver implements WhatsAppDriver {
         `payloadBytes=${dataUrl.length} thumbnailBytes=${pngThumbnail.length} kind=sticker`,
       );
 
-      const r = await fetch(this.url('/chat/send/sticker'), {
-        method: 'POST',
-        headers: this.userHeaders(p.token),
-        body: JSON.stringify(body),
-      });
-      const txt = await r.text();
-      console.log(`[fzap-sticker] FZAP response status=${r.status} body=${txt.slice(0, 400)}`);
+      const res = await this.postWithGroupRetry('/chat/send/sticker', body, p.token, p.to);
+      console.log(`[fzap-sticker] FZAP response status=${res.status} body=${res.txt.slice(0, 400)}`);
 
-      if (!r.ok) {
-        throw new Error(`fzap sendMedia(sticker) ${r.status}: ${txt.slice(0, 300)}`);
+      if (!res.ok) {
+        throw new Error(`fzap sendMedia(sticker) ${res.status}: ${res.txt.slice(0, 300)}`);
       }
       let parsed: any = null;
-      try { parsed = JSON.parse(txt); } catch { /* body não-JSON */ }
+      try { parsed = JSON.parse(res.txt); } catch { /* body não-JSON */ }
       if (parsed && parsed.success === false) {
         throw new Error(
-          `fzap sendMedia(sticker) recusou: ${parsed.error || parsed.message || txt.slice(0, 200)}`,
+          `fzap sendMedia(sticker) recusou: ${parsed.error || parsed.message || res.txt.slice(0, 200)}`,
         );
       }
       return;
@@ -257,13 +277,8 @@ export class FzapDriver implements WhatsAppDriver {
       body.ptt = true;
     }
 
-    const r = await fetch(this.url(m.path), {
-      method: 'POST',
-      headers: this.userHeaders(p.token),
-      body: JSON.stringify(body),
-    });
-    const txt = await r.text();
-    if (!r.ok) throw new Error(`fzap sendMedia(${p.type}) ${r.status}: ${txt.slice(0, 200)}`);
+    const { ok, status, txt } = await this.postWithGroupRetry(m.path, body, p.token, p.to);
+    if (!ok) throw new Error(`fzap sendMedia(${p.type}) ${status}: ${txt.slice(0, 200)}`);
     let parsed: any = null;
     try { parsed = JSON.parse(txt); } catch { /* body não-JSON */ }
     if (parsed && parsed.success === false) {

@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Send, Upload, Trash2, RefreshCw, Loader2, Square } from "lucide-react";
+import { Send, Upload, Trash2, RefreshCw, Loader2, Square, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import SavedGroupListsManager from "./SavedGroupListsManager";
 
@@ -455,6 +455,27 @@ export default function GroupSender() {
     }
   };
 
+  // Envios que falharam ficam fora da fila do send-group-messages (status 'queued').
+  // Devolver as falhas para 'queued' permite reenviar sem recriar a lista.
+  const retryFailed = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from('group_messages')
+        .update({ status: 'queued', error_message: null })
+        .eq('user_id', user.id)
+        .in('status', ['failed', 'permanently_failed']);
+
+      if (error) throw error;
+      loadMessages();
+      toast.success("Falhas voltaram para a fila. Clique em Iniciar Envio.");
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao reenfileirar as falhas');
+    }
+  };
+
   const clearAll = async () => {
     if (!confirm("Deseja limpar todas as mensagens e arquivos?")) return;
 
@@ -761,6 +782,15 @@ export default function GroupSender() {
               Parar
             </Button>
           )}
+          <Button
+            onClick={retryFailed}
+            variant="outline"
+            className="gap-2"
+            disabled={sending || stats.failed === 0}
+          >
+            <RotateCcw className="h-4 w-4" />
+            Reenviar Falhas
+          </Button>
           <Button onClick={clearAll} variant="destructive" className="gap-2">
             <Trash2 className="h-4 w-4" />
             Limpar Tudo
