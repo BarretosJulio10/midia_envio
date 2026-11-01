@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Upload, FileText, Save, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { toStickerFile } from "@/lib/stickerImage";
+import { toSocialImage } from "@/lib/socialImage";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 interface UploadSectionProps {
@@ -134,7 +135,7 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
       let socialAccounts: any[] = [];
       if (postToSocial) {
         const { data: accs } = await (supabase as any)
-          .from('social_accounts').select('*').eq('enabled', true);
+          .from('social_accounts').select('id,company_ref,platform').eq('enabled', true);
         socialAccounts = accs ?? [];
         if (socialAccounts.length === 0) {
           toast.warning("Nenhuma empresa com rede social ativa — nada será publicado.");
@@ -161,17 +162,35 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
         /\.(mp4|mov|webm|m4v|3gp|mkv|avi)$/i.test(name) ? 'video'
           : /\.(jpe?g|png|gif|bmp|webp|heic|heif)$/i.test(name) ? 'image' : null;
 
-      const queueSocial = (fileId: string, filename: string, publicUrl: string) => {
+      // Recebe o arquivo ORIGINAL (antes de virar figurinha). Imagem vai para as
+      // redes como JPEG na proporção aceita pelo Instagram, numa cópia separada.
+      const queueSocial = async (fileId: string, original: File, publicUrl: string) => {
         if (!postToSocial) return;
+        const filename = original.name;
         const type = socialMediaType(filename);
-        socialAccounts.filter((a) => a.company_ref === fileId).forEach((acc) => {
-          if (!type) return; // Meta só publica imagem ou vídeo
+        const targets = socialAccounts.filter((a) => a.company_ref === fileId);
+        if (!type || targets.length === 0) return; // Meta só publica imagem ou vídeo
+        let mediaUrl = publicUrl;
+        if (type === 'image') {
+          const prepared = await toSocialImage(original);
+          if (prepared.adjusted || sendAsSticker) {
+            const socialPath = `${user.id}/social/${Date.now()}_${Math.random().toString(36).substring(7)}_${prepared.file.name.replace(/[^\w.-]+/g, '_')}`;
+            const { error: socialUpErr } = await supabase.storage
+              .from('whatsapp-files')
+              .upload(socialPath, prepared.file, { contentType: 'image/jpeg' });
+            if (socialUpErr) throw socialUpErr;
+            mediaUrl = supabase.storage.from('whatsapp-files').getPublicUrl(socialPath).data.publicUrl;
+          }
+        } else if (sendAsSticker) {
+          return; // vídeo marcado como figurinha não vai para as redes
+        }
+        targets.forEach((acc) => {
           socialRows.push({
             user_id: user.id,
             social_account_id: acc.id,
             company_ref: fileId,
             platform: acc.platform,
-            media_url: publicUrl,
+            media_url: mediaUrl,
             media_type: type,
             filename,
             caption: messageText || null,
@@ -207,7 +226,7 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
               .from('whatsapp-files')
               .getPublicUrl(filePath);
 
-            queueSocial(fileId, uploadFile.name, publicUrl);
+            await queueSocial(fileId, file, publicUrl);
 
             return {
               phone,
@@ -282,7 +301,7 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
             file_type: sendAsSticker ? 'sticker' : (sendAsDocument ? 'document' : undefined)
           } as any);
 
-          queueSocial(fileId, uploadFile.name, publicUrl);
+          await queueSocial(fileId, file, publicUrl);
 
           successCount++;
         }

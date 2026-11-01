@@ -6,9 +6,10 @@ export default function FacebookCallback() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
+    const state = params.get("state");
     const error = params.get("error_description") ?? params.get("error");
     const payload = code
-      ? { source: "fb-oauth", code }
+      ? { source: "fb-oauth", code, state }
       : { source: "fb-oauth", error: error ?? "Autorizacao cancelada" };
 
     if (window.opener) {
@@ -17,7 +18,10 @@ export default function FacebookCallback() {
       setTimeout(() => window.close(), 800);
     } else {
       // Fallback: sem popup, volta para o painel guardando o code
-      if (code) sessionStorage.setItem("fb_oauth_code", code);
+      if (code) {
+        sessionStorage.setItem("fb_oauth_code", code);
+        sessionStorage.setItem("fb_oauth_returned_state", state ?? "");
+      }
       window.location.replace("/");
     }
   }, []);

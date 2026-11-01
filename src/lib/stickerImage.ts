@@ -9,7 +9,7 @@ const SIZE = 512;
 // Figurinha estática do WhatsApp deve ficar abaixo de 100 KB.
 const MAX_STICKER_BYTES = 95 * 1024;
 
-async function loadImage(file: File): Promise<{ source: CanvasImageSource; width: number; height: number; close: () => void }> {
+export async function loadImage(file: File): Promise<{ source: CanvasImageSource; width: number; height: number; close: () => void }> {
   if (typeof createImageBitmap === "function") {
     try {
       const bmp = await createImageBitmap(file);

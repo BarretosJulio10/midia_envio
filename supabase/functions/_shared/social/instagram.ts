@@ -29,15 +29,20 @@ export class InstagramDriver implements SocialDriver {
 
     // 2) aguarda processamento (vídeo demora)
     const maxTries = mediaType === 'video' ? 30 : 6;
+    let finished = false;
     for (let i = 0; i < maxTries; i++) {
       const st = await graphFetch(
         `${GRAPH}/${creationId}?fields=status_code,status&access_token=${encodeURIComponent(token)}`,
       );
-      if (st.status_code === 'FINISHED') break;
+      if (st.status_code === 'FINISHED') { finished = true; break; }
       if (st.status_code === 'ERROR' || st.status_code === 'EXPIRED') {
         throw new Error(`Instagram falhou ao processar a mídia: ${st.status ?? st.status_code}`);
       }
       await sleep(3000);
+    }
+    // Publicar antes de terminar o processamento faz a Meta recusar o post.
+    if (!finished) {
+      throw new Error('Instagram ainda está processando a mídia (vídeo longo/pesado). Use "Reenviar falhas" em alguns minutos.');
     }
 
     // 3) publica

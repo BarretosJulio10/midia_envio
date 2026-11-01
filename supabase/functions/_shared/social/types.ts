@@ -9,6 +9,7 @@ export type SocialAccount = {
   page_id: string | null;
   ig_user_id: string | null;
   access_token: string;
+  page_name?: string | null;
 };
 
 export type PublishInput = {
@@ -27,7 +28,9 @@ export interface SocialDriver {
   checkToken(account: SocialAccount): Promise<{ ok: boolean; message: string }>;
 }
 
-export const GRAPH = 'https://graph.facebook.com/v21.0';
+// v21.0 expira em 21/01/2027; v25.0 é suportada até 29/07/2028.
+export const GRAPH_VERSION = 'v25.0';
+export const GRAPH = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
 export async function graphFetch(url: string, init?: RequestInit) {
   const res = await fetch(url, init);

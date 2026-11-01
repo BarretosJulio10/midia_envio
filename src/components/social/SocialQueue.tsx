@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { CheckCircle2, Clock, Send, XCircle, Ban, Pause, RotateCcw, Facebook, Instagram } from "lucide-react";
+import { CheckCircle2, Clock, Send, XCircle, Ban, Pause, RotateCcw, Facebook, Instagram, CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 
 const db = supabase as any;
@@ -30,8 +30,10 @@ export default function SocialQueue() {
   }, []);
 
   const start = async () => {
-    if (!posts.some((p) => p.status === "queued")) {
-      toast.error("Não há publicações na fila!");
+    if (!posts.some((p) => p.status === "queued" && !isScheduled(p))) {
+      toast.info(posts.some(isScheduled)
+        ? "Nada para publicar agora: as agendadas saem sozinhas no horário marcado."
+        : "Não há publicações na fila!");
       return;
     }
     setPublishing(true);
@@ -75,7 +77,24 @@ export default function SocialQueue() {
     load();
   };
 
-  const badge = (status: string) => {
+  // Cancela o que ainda não saiu (na fila ou agendado). Publicados não são afetados.
+  const cancelPending = async () => {
+    const pending = posts.filter((p) => p.status === "queued").length;
+    if (pending === 0) return toast.info("Não há publicações pendentes");
+    if (!confirm(`Cancelar ${pending} publicação(ões) pendente(s) e agendada(s)?`)) return;
+    const { error } = await db.from("social_posts").delete().eq("status", "queued");
+    if (error) return toast.error(error.message);
+    toast.success("Publicações pendentes canceladas");
+    load();
+  };
+
+  const isScheduled = (p: any) => p.status === "queued" && p.scheduled_at && new Date(p.scheduled_at).getTime() > Date.now();
+  const fmt = (d?: string | null) => d ? new Date(d).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "";
+
+  const badge = (status: string, p?: any) => {
+    if (p && isScheduled(p)) {
+      return <Badge variant="outline" className="gap-1"><CalendarClock className="h-3 w-3" />Agendado</Badge>;
+    }
     switch (status) {
       case "published":
         return <Badge className="gap-1 bg-primary/20 text-primary border-primary/30"><CheckCircle2 className="h-3 w-3" />Publicado</Badge>;
@@ -91,7 +110,8 @@ export default function SocialQueue() {
   };
 
   const counts = {
-    queued: posts.filter((p) => p.status === "queued").length,
+    queued: posts.filter((p) => p.status === "queued" && !isScheduled(p)).length,
+    scheduled: posts.filter(isScheduled).length,
     published: posts.filter((p) => p.status === "published").length,
     failed: posts.filter((p) => p.status === "failed").length,
     blocked: posts.filter((p) => p.status === "blocked").length,
@@ -100,16 +120,22 @@ export default function SocialQueue() {
   return (
     <Card className="border-border/50 bg-gradient-card">
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
-        <CardTitle className="text-base">
-          Fila social — {counts.queued} na fila · {counts.published} publicadas · {counts.failed} falhas · {counts.blocked} bloqueadas
-        </CardTitle>
-        <div className="flex gap-2">
+        <div className="space-y-1">
+          <CardTitle className="text-base">
+            Fila social — {counts.queued} na fila · {counts.scheduled} agendadas · {counts.published} publicadas · {counts.failed} falhas · {counts.blocked} bloqueadas
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            O servidor publica sozinho em até 1 minuto (ou no horário agendado), mesmo com o painel fechado.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
           {publishing ? (
-            <Button size="sm" variant="outline" onClick={stop} className="gap-2"><Pause className="h-4 w-4" />Pausar</Button>
+            <Button size="sm" variant="outline" onClick={stop} className="gap-2"><Pause className="h-4 w-4" />Parar</Button>
           ) : (
-            <Button size="sm" onClick={start} className="gap-2"><Send className="h-4 w-4" />Publicar</Button>
+            <Button size="sm" onClick={start} className="gap-2"><Send className="h-4 w-4" />Publicar agora</Button>
           )}
           <Button size="sm" variant="outline" onClick={retry} className="gap-2"><RotateCcw className="h-4 w-4" />Reenviar falhas</Button>
+          <Button size="sm" variant="ghost" onClick={cancelPending} className="gap-2"><XCircle className="h-4 w-4" />Cancelar pendentes</Button>
         </div>
       </CardHeader>
       <CardContent className="overflow-x-auto">
@@ -120,12 +146,13 @@ export default function SocialQueue() {
               <TableHead>Rede</TableHead>
               <TableHead>Arquivo</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Quando</TableHead>
               <TableHead>Detalhe</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {posts.length === 0 && (
-              <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Nenhuma publicação ainda</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">Nenhuma publicação ainda</TableCell></TableRow>
             )}
             {posts.map((p) => (
               <TableRow key={p.id}>
@@ -137,7 +164,10 @@ export default function SocialQueue() {
                   </span>
                 </TableCell>
                 <TableCell className="max-w-[180px] truncate">{p.filename ?? "-"}</TableCell>
-                <TableCell>{badge(p.status)}</TableCell>
+                <TableCell>{badge(p.status, p)}</TableCell>
+                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                  {p.status === "published" ? fmt(p.published_at) : fmt(p.scheduled_at) || "Assim que possível"}
+                </TableCell>
                 <TableCell className="max-w-[260px] truncate text-xs text-muted-foreground">
                   {p.error_message ?? p.external_post_id ?? ""}
                 </TableCell>

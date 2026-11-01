@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { GRAPH, graphFetch } from "../_shared/social/types.ts";
+import { GRAPH, GRAPH_VERSION, graphFetch } from "../_shared/social/types.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,6 +13,10 @@ const SCOPES = [
   'instagram_basic',
   'instagram_content_publish',
   'business_management',
+  // A Meta exige estes dois para publicar no Instagram quando o acesso à página
+  // vem por função no Gerenciador de Negócios (caso de agência, igual ao mLabs).
+  'ads_read',
+  'ads_management',
 ].join(',');
 
 async function listPages(token: string) {
@@ -30,20 +34,27 @@ async function listPages(token: string) {
   }));
 }
 
+// Troca o token curto (~1h) por um de longa duração. Os tokens de PÁGINA obtidos
+// a partir de um token de usuário de longa duração não expiram (só caem se a
+// senha mudar ou se a empresa remover você da página).
 async function toLongLived(token: string) {
   const appId = Deno.env.get('META_APP_ID');
   const appSecret = Deno.env.get('META_APP_SECRET');
-  if (!appId || !appSecret) return { token, expiresIn: null as number | null };
+  if (!appId || !appSecret) return { token, longLived: false };
   try {
     const long = await graphFetch(
       `${GRAPH}/oauth/access_token?grant_type=fb_exchange_token` +
       `&client_id=${encodeURIComponent(appId)}&client_secret=${encodeURIComponent(appSecret)}` +
       `&fb_exchange_token=${encodeURIComponent(token)}`,
     );
-    if (long?.access_token) return { token: long.access_token, expiresIn: long.expires_in ?? 5184000 };
+    if (long?.access_token) return { token: long.access_token, longLived: true };
   } catch (_) { /* segue com o token curto */ }
-  return { token, expiresIn: null as number | null };
+  return { token, longLived: false };
 }
+
+// Token curto: as páginas param de publicar em ~1h. Longo: sem data de validade.
+const expiresAtFor = (longLived: boolean) =>
+  longLived ? null : new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -69,7 +80,7 @@ Deno.serve(async (req) => {
       const redirectUri = String(body?.redirectUri ?? '').trim();
       if (!redirectUri) throw new Error('redirectUri obrigatorio');
       const state = crypto.randomUUID();
-      const url = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(appId)}` +
+      const url = `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth?client_id=${encodeURIComponent(appId)}` +
         `&redirect_uri=${encodeURIComponent(redirectUri)}` +
         `&state=${state}&response_type=code&scope=${encodeURIComponent(SCOPES)}`;
       return json({ success: true, url, state });
@@ -91,10 +102,9 @@ Deno.serve(async (req) => {
       );
       if (!tokenRes?.access_token) throw new Error('Nao foi possivel obter o token da Meta');
 
-      const { token, expiresIn } = await toLongLived(tokenRes.access_token);
+      const { token, longLived } = await toLongLived(tokenRes.access_token);
       const pages = await listPages(token);
-      const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
-      return json({ success: true, pages, token_expires_at: expiresAt });
+      return json({ success: true, pages, token_expires_at: expiresAtFor(longLived) });
     }
 
     // 3) Fluxo manual antigo (colar token) - mantido como alternativa
@@ -104,8 +114,78 @@ Deno.serve(async (req) => {
       const long = await toLongLived(token);
       token = long.token;
       const pages = await listPages(token);
-      const expiresAt = long.expiresIn ? new Date(Date.now() + long.expiresIn * 1000).toISOString() : null;
-      return json({ success: true, pages, token_expires_at: expiresAt });
+      return json({ success: true, pages, token_expires_at: expiresAtFor(long.longLived) });
+    }
+
+    // 4) Vincula páginas às empresas. Feito no servidor porque o navegador não
+    //    tem permissão de ler/gravar o token salvo (só o servidor usa o token).
+    //    Cada token é conferido na Meta: precisa ser mesmo da página informada.
+    if (action === 'link') {
+      const links = Array.isArray(body?.links) ? body.links : [];
+      if (links.length === 0) throw new Error('Nenhuma página para vincular');
+      if (links.length > 500) throw new Error('Máximo de 500 páginas por vez');
+
+      const results: Array<{ page_id: string; ok: boolean; error?: string }> = [];
+      for (const l of links) {
+        const companyRef = String(l?.company_ref ?? '').trim();
+        const pageId = String(l?.page_id ?? '').trim();
+        const pageToken = String(l?.page_token ?? '').trim();
+        try {
+          if (!companyRef || !pageId || !pageToken) throw new Error('Dados incompletos');
+          const me = await graphFetch(`${GRAPH}/me?fields=id&access_token=${encodeURIComponent(pageToken)}`);
+          if (String(me?.id) !== pageId) throw new Error('Token não pertence a esta página');
+
+          const base = {
+            user_id: user.id,
+            company_ref: companyRef,
+            page_id: pageId,
+            page_name: l.page_name ?? null,
+            access_token: pageToken,
+            token_expires_at: l.token_expires_at ?? null,
+            connected_via: 'oauth',
+            enabled: true,
+          };
+          const rows: any[] = [{ ...base, name: l.page_name ?? pageId, platform: 'facebook', ig_user_id: null, ig_username: null }];
+          if (l.ig_user_id) {
+            rows.push({
+              ...base,
+              name: l.ig_username ? `@${l.ig_username}` : (l.page_name ?? pageId),
+              platform: 'instagram',
+              ig_user_id: String(l.ig_user_id),
+              ig_username: l.ig_username ?? null,
+            });
+          }
+          const { error } = await supabase.from('social_accounts')
+            .upsert(rows, { onConflict: 'user_id,company_ref,platform' });
+          if (error) throw new Error(error.message);
+          results.push({ page_id: pageId, ok: true });
+        } catch (e: any) {
+          results.push({ page_id: pageId, ok: false, error: String(e?.message ?? e) });
+        }
+      }
+      return json({ success: true, results });
+    }
+
+    // 5) Cadastro manual (colar Page ID / IG User ID / token).
+    if (action === 'save_manual') {
+      const m = body?.manual ?? {};
+      const companyRef = String(m.company_ref ?? '').trim();
+      const name = String(m.name ?? '').trim();
+      const platform = m.platform === 'instagram' ? 'instagram' : 'facebook';
+      const pageId = String(m.page_id ?? '').trim() || null;
+      const igUserId = String(m.ig_user_id ?? '').trim() || null;
+      const token = String(m.access_token ?? '').trim();
+      if (!companyRef || !name) throw new Error('Informe o ID da empresa e o nome');
+      if (platform === 'facebook' && !pageId) throw new Error('Facebook exige o Page ID');
+      if (platform === 'instagram' && !igUserId) throw new Error('Instagram exige o IG User ID (conta Business)');
+      if (!token) throw new Error('Informe o access token da página');
+      const { error } = await supabase.from('social_accounts').upsert({
+        user_id: user.id, company_ref: companyRef, name, platform,
+        page_id: pageId, ig_user_id: igUserId, access_token: token,
+        connected_via: 'manual', enabled: true,
+      }, { onConflict: 'user_id,company_ref,platform' });
+      if (error) throw new Error(error.message);
+      return json({ success: true });
     }
 
     throw new Error(`Acao desconhecida: ${action}`);
