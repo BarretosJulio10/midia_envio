@@ -10,6 +10,7 @@ import Dashboard from "./pages/Dashboard";
 import AdminDrivers from "./pages/AdminDrivers";
 import FacebookCallback from "./pages/FacebookCallback";
 import NotFound from "./pages/NotFound";
+import { PrivacyPolicy, DataDeletion } from "./pages/Legal";
 
 const queryClient = new QueryClient();
 
@@ -53,6 +54,9 @@ const App = () => {
             <Route path="/" element={session ? <Dashboard /> : <Auth />} />
             <Route path="/admin/drivers" element={session ? <AdminDrivers /> : <Auth />} />
             <Route path="/oauth/facebook" element={<FacebookCallback />} />
+            {/* Páginas públicas exigidas pela Meta (sem login) */}
+            <Route path="/privacidade" element={<PrivacyPolicy />} />
+            <Route path="/exclusao-de-dados" element={<DataDeletion />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

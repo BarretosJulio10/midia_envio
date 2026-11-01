@@ -7,34 +7,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
+// Sistema de uso interno: só login. O cadastro de novas contas foi removido
+// (contas novas são criadas pelo administrador no painel do Supabase).
 export default function Auth() {
   const [loading, setLoading] = useState(false);
-  const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const handleAuth = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-
     try {
-      if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) throw error;
-        toast.success("Login realizado com sucesso!");
-      } else {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
-        if (error) throw error;
-        toast.success("Conta criada! Você já pode fazer login.");
-      }
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      toast.success("Login realizado com sucesso!");
     } catch (error: any) {
-      toast.error(error.message || "Erro ao autenticar");
+      toast.error(error.message || "Erro ao entrar");
     } finally {
       setLoading(false);
     }
@@ -47,12 +35,10 @@ export default function Auth() {
           <CardTitle className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
             WhatsApp Sender
           </CardTitle>
-          <CardDescription>
-            {isLogin ? "Entre com sua conta" : "Crie sua conta"}
-          </CardDescription>
+          <CardDescription>Entre com sua conta</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleAuth} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -78,26 +64,14 @@ export default function Auth() {
                 minLength={6}
               />
             </div>
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={loading}
-            >
+            <Button type="submit" className="w-full" disabled={loading}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isLogin ? "Entrar" : "Criar conta"}
+              Entrar
             </Button>
           </form>
-          <div className="mt-4 text-center text-sm">
-            <button
-              type="button"
-              onClick={() => setIsLogin(!isLogin)}
-              className="text-primary hover:underline"
-              disabled={loading}
-            >
-              {isLogin
-                ? "Não tem uma conta? Cadastre-se"
-                : "Já tem uma conta? Faça login"}
-            </button>
+          <div className="mt-4 flex justify-center gap-4 text-xs text-muted-foreground">
+            <a href="/privacidade" className="hover:underline">Política de Privacidade</a>
+            <a href="/exclusao-de-dados" className="hover:underline">Exclusão de Dados</a>
           </div>
         </CardContent>
       </Card>
