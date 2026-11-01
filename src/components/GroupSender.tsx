@@ -43,6 +43,10 @@ export default function GroupSender() {
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [messagesPerBatch, setMessagesPerBatch] = useState(10);
   const [pauseDuration, setPauseDuration] = useState(120);
+  // Intervalo aleatório entre uma mensagem e outra (ms), vindo das Configurações.
+  const [delayRange, setDelayRange] = useState({ min: 10000, max: 30000 });
+  // Texto de andamento: "Próximo envio em 23s", "Pausa de segurança: 1:40"...
+  const [progressInfo, setProgressInfo] = useState("");
   const [sendAsDocument, setSendAsDocument] = useState(false);
   const [sendAsSticker, setSendAsSticker] = useState(false);
   const [isMenuMode, setIsMenuMode] = useState(false);
@@ -81,13 +85,14 @@ export default function GroupSender() {
 
     const { data: config } = await supabase
       .from('fzap_config')
-      .select('pause_after, pause_duration')
+      .select('pause_after, pause_duration, delay_min, delay_max')
       .eq('user_id', user.id)
       .single();
 
     if (config) {
       setMessagesPerBatch(config.pause_after || 5);
       setPauseDuration(Math.floor((config.pause_duration || 30000) / 1000));
+      setDelayRange({ min: config.delay_min || 10000, max: config.delay_max || 30000 });
     }
   };
 
@@ -347,6 +352,7 @@ export default function GroupSender() {
   const finishSending = (totalSent: number, totalFailed: number) => {
     sendingRef.current = false;
     setSending(false);
+    setProgressInfo("");
     loadMessages();
 
     if (totalFailed > 0) {
@@ -359,9 +365,25 @@ export default function GroupSender() {
   const stopSending = () => {
     sendingRef.current = false;
     setSending(false);
+    setProgressInfo("");
     loadMessages();
     toast.info("Envio interrompido. As mensagens restantes continuam na fila.");
   };
+
+  // Espera `ms` mostrando a contagem regressiva. Para na hora se o usuário clicar em Parar.
+  const waitWithCountdown = async (ms: number, label: string) => {
+    const end = Date.now() + ms;
+    while (sendingRef.current && Date.now() < end) {
+      const left = Math.ceil((end - Date.now()) / 1000);
+      const mm = Math.floor(left / 60), ss = String(left % 60).padStart(2, '0');
+      setProgressInfo(`${label} ${mm > 0 ? `${mm}:${ss}` : `${left}s`}`);
+      await new Promise((r) => setTimeout(r, Math.min(1000, Math.max(0, end - Date.now()))));
+    }
+  };
+
+  // Erros que não adianta repetir: precisam de ação do usuário.
+  const isFatalError = (msg: string) =>
+    /Instância não conectada|Não autorizado|Unauthorized|Driver .*(desabilitado|não encontrado)|sem base_url/i.test(msg);
 
   const startSending = async () => {
     const queued = messages.filter(m => m.status === 'queued');
@@ -374,54 +396,85 @@ export default function GroupSender() {
     sendingRef.current = true;
     toast.success("Envio de mensagens em grupo iniciado!");
 
+    // O servidor envia UMA mensagem por chamada (rápido, nunca estoura o limite
+    // de tempo). Aqui ficam o intervalo aleatório entre mensagens e a pausa de
+    // segurança a cada N envios; depois da pausa o envio continua sozinho até a
+    // fila acabar. Erros passageiros (rede, servidor ocupado) não param o envio.
     const pauseMs = Math.max(1000, pauseDuration * 1000);
+    const perBatch = Math.max(1, messagesPerBatch || 1);
+    // Intervalos atuais das Configurações (podem ter mudado desde que a tela abriu).
+    const { data: cfg } = await supabase.from('fzap_config').select('delay_min, delay_max').maybeSingle();
+    const minDelay = Math.max(1000, cfg?.delay_min || delayRange.min);
+    const maxDelay = Math.max(minDelay, cfg?.delay_max || delayRange.max);
     let totalSent = 0;
     let totalFailed = 0;
+    let sinceLastPause = 0;
+    let consecutiveErrors = 0;
 
-    // O servidor processa um lote por chamada; o loop continua até a fila acabar.
-    const sendBatch = async () => {
-      if (!sendingRef.current) return;
-
+    while (sendingRef.current) {
+      setProgressInfo(`Enviando... (${totalSent} enviadas${totalFailed ? `, ${totalFailed} falhas` : ''})`);
+      let data: any = null;
       try {
-        const { data, error } = await supabase.functions.invoke('send-group-messages');
-
-        if (error) {
-          console.error('Raw Supabase Edge Function Error:', error);
-          let errorMessage = error.message || 'Erro ao enviar mensagens';
-          if (error.context && typeof error.context.json === 'function') {
+        const res = await supabase.functions.invoke('send-group-messages');
+        if (res.error) {
+          let errorMessage = res.error.message || 'Erro ao enviar mensagens';
+          const ctx: any = (res.error as any).context;
+          if (ctx && typeof ctx.json === 'function') {
             try {
-              const errorBody = await error.context.json();
-              errorMessage = errorBody.error || errorBody.message || errorMessage;
-            } catch {
-              // usa a mensagem original
-            }
-          } else if (error.context && error.context.error) {
-            errorMessage = error.context.error;
+              const body = await ctx.json();
+              errorMessage = body.error || body.message || errorMessage;
+            } catch { /* usa a mensagem original */ }
           }
           throw new Error(errorMessage);
         }
-
-        if (!data?.success) {
-          throw new Error(data?.error || 'Erro ao enviar mensagens');
-        }
-
-        totalSent += data.sent || 0;
-        totalFailed += data.failed || 0;
-
-        if (data.moreRemaining && sendingRef.current) {
-          setTimeout(sendBatch, pauseMs);
-        } else {
-          finishSending(totalSent, totalFailed);
-        }
+        data = res.data;
+        if (!data?.success) throw new Error(data?.error || 'Erro ao enviar mensagens');
       } catch (error: any) {
-        sendingRef.current = false;
-        setSending(false);
-        loadMessages();
-        toast.error(error.message || 'Erro ao enviar mensagens');
+        const message = String(error?.message ?? error);
+        if (isFatalError(message)) {
+          sendingRef.current = false;
+          setSending(false);
+          setProgressInfo("");
+          loadMessages();
+          toast.error(message);
+          return;
+        }
+        consecutiveErrors++;
+        if (consecutiveErrors >= 5) {
+          sendingRef.current = false;
+          setSending(false);
+          setProgressInfo("");
+          loadMessages();
+          toast.error(`Envio parado após 5 erros seguidos: ${message}. As mensagens continuam na fila.`);
+          return;
+        }
+        console.warn(`[GroupSender] erro passageiro (${consecutiveErrors}/5):`, message);
+        await waitWithCountdown(15000 * consecutiveErrors, `Erro de comunicação, tentando de novo em`);
+        continue;
       }
-    };
 
-    sendBatch();
+      consecutiveErrors = 0;
+      totalSent += data.sent || 0;
+      totalFailed += data.failed || 0;
+      if (data.failed && data.error) {
+        toast.error(`${data.group ?? 'Grupo'}: ${data.error}`);
+      }
+
+      if (!data.processed || !data.moreRemaining) {
+        finishSending(totalSent, totalFailed);
+        return;
+      }
+
+      sinceLastPause += data.processed || 0;
+      if (sinceLastPause >= perBatch) {
+        sinceLastPause = 0;
+        toast.info(`Pausa de segurança de ${Math.round(pauseMs / 1000)}s. O envio continua sozinho depois.`);
+        await waitWithCountdown(pauseMs, `Pausa de segurança (${data.remaining ?? '?'} na fila): volta em`);
+      } else {
+        const delay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+        await waitWithCountdown(delay, `Próximo envio (${data.remaining ?? '?'} na fila) em`);
+      }
+    }
   };
 
   const cleanupAfterSending = async () => {
@@ -770,7 +823,7 @@ export default function GroupSender() {
           />
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button onClick={createMessages} disabled={loading} className="gap-2">
             <Upload className="h-4 w-4" />
             Adicionar à Fila
@@ -784,6 +837,9 @@ export default function GroupSender() {
               <Square className="h-4 w-4" />
               Parar
             </Button>
+          )}
+          {sending && progressInfo && (
+            <span className="self-center text-sm text-muted-foreground" aria-live="polite">{progressInfo}</span>
           )}
           <Button
             onClick={retryFailed}
