@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { toStickerFile } from "@/lib/stickerImage";
 import { Send, Upload, Trash2, RefreshCw, Loader2, Square, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import SavedGroupListsManager from "./SavedGroupListsManager";
@@ -210,8 +211,10 @@ export default function GroupSender() {
       // Primeiro, processar todos os uploads e obter as URLs/metadata
       const uploadedFilesMetadata = [];
 
-      for (const file of files) {
-        console.log("Iniciando upload do arquivo:", file.name);
+      for (const originalFile of files) {
+        console.log("Iniciando upload do arquivo:", originalFile.name);
+        // Figurinha: converte para WEBP 512x512 no navegador (o servidor não aguenta converter fotos grandes)
+        const file = sendAsSticker ? await toStickerFile(originalFile) : originalFile;
         const fileExt = file.name.split('.').pop();
         const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
 

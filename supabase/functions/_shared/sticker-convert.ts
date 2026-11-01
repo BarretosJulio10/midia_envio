@@ -1,6 +1,12 @@
 // Conversão PNG/JPG/GIF -> WEBP 512x512 com transparência,
 // compatível com sticker nativo do WhatsApp.
 // Usa magick-wasm (suportado em Deno/Supabase Edge Functions — sharp NÃO é suportado).
+//
+// IMPORTANTE: a Edge Function tem ~2s de CPU por requisição. Converter uma foto
+// grande aqui estoura o limite ("CPU Time exceeded" / HTTP 546) e a função é
+// encerrada no meio do envio. Por isso o painel já converte a imagem no navegador
+// e envia um WEBP 512x512 pronto; esta conversão fica só como reserva para
+// arquivos pequenos enviados antes dessa mudança.
 import {
   ImageMagick,
   initializeImageMagick,
@@ -34,10 +40,37 @@ export function isWebpBytes(bytes: Uint8Array): boolean {
   );
 }
 
+/**
+ * Lê largura/altura de um WEBP direto do cabeçalho, sem decodificar a imagem
+ * (custo de CPU praticamente zero). Retorna null se o formato não for reconhecido.
+ */
+export function webpDimensions(b: Uint8Array): { width: number; height: number } | null {
+  if (!isWebpBytes(b) || b.length < 30) return null;
+  const chunk = String.fromCharCode(b[12], b[13], b[14], b[15]);
+  if (chunk === "VP8X") {
+    return {
+      width: 1 + (b[24] | (b[25] << 8) | (b[26] << 16)),
+      height: 1 + (b[27] | (b[28] << 8) | (b[29] << 16)),
+    };
+  }
+  if (chunk === "VP8 ") {
+    return {
+      width: (b[26] | (b[27] << 8)) & 0x3fff,
+      height: (b[28] | (b[29] << 8)) & 0x3fff,
+    };
+  }
+  if (chunk === "VP8L" && b[20] === 0x2f) {
+    return {
+      width: 1 + (((b[22] & 0x3f) << 8) | b[21]),
+      height: 1 + (((b[24] & 0x0f) << 10) | (b[23] << 2) | ((b[22] & 0xc0) >> 6)),
+    };
+  }
+  return null;
+}
+
 export type StickerConvertLog = {
   inputSize: number;
   outputSize: number;
-  thumbnailSize: number;
   inputDetected: string;
   converted: boolean;
   width: number;
@@ -61,12 +94,11 @@ function detectInputMime(bytes: Uint8Array): string {
 
 /**
  * Converte qualquer imagem suportada (PNG/JPG/GIF/WEBP) para um WEBP 512x512
- * com fundo transparente, preservando proporção via fit:contain.
- * Se a entrada já for um WEBP 512x512 válido, retorna o buffer original.
+ * com fundo transparente, preservando proporção (fit: contain).
  */
 export async function convertToStickerWebp(
   input: Uint8Array,
-): Promise<{ bytes: Uint8Array; pngThumbnail: Uint8Array; log: StickerConvertLog }> {
+): Promise<{ bytes: Uint8Array; log: StickerConvertLog }> {
   const inputMime = detectInputMime(input);
 
   await ensureMagick();
@@ -89,21 +121,16 @@ export async function convertToStickerWebp(
 
         img.write(MagickFormat.WebP, (out) => {
           const bytes = new Uint8Array(out);
-          img.write(MagickFormat.Png, (thumb) => {
-            const pngThumbnail = new Uint8Array(thumb);
-            resolve({
-              bytes,
-              pngThumbnail,
-              log: {
-                inputSize: input.length,
-                outputSize: bytes.length,
-                thumbnailSize: pngThumbnail.length,
-                inputDetected: inputMime,
-                converted: true,
-                width: 512,
-                height: 512,
-              },
-            });
+          resolve({
+            bytes,
+            log: {
+              inputSize: input.length,
+              outputSize: bytes.length,
+              inputDetected: inputMime,
+              converted: true,
+              width: 512,
+              height: 512,
+            },
           });
         });
       });

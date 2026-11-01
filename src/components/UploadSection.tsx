@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Upload, FileText, Save, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { toStickerFile } from "@/lib/stickerImage";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 interface UploadSectionProps {
@@ -191,7 +192,8 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
               return null;
             }
 
-            const uploadFile = file;
+            // Figurinha: converte para WEBP 512x512 no navegador (o servidor não aguenta converter fotos grandes)
+            const uploadFile = sendAsSticker ? await toStickerFile(file) : file;
 
             // Upload file
             const filePath = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}_${uploadFile.name}`;
@@ -253,7 +255,8 @@ export default function UploadSection({ onUploadComplete }: UploadSectionProps) 
 
           if (!phone || blacklistedNumbers.has(phone) || blacklistedIds.has(fileId)) continue;
 
-          const uploadFile = file;
+          // Figurinha: converte para WEBP 512x512 no navegador (o servidor não aguenta converter fotos grandes)
+          const uploadFile = sendAsSticker ? await toStickerFile(file) : file;
 
           // Upload file
           const filePath = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}_${uploadFile.name}`;

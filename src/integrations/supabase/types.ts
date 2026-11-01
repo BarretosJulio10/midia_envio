@@ -140,6 +140,7 @@ export type Database = {
           id: string
           image_url: string | null
           sent_at: string | null
+          sending_started_at: string | null
           status: string
           user_id: string
         }
@@ -154,6 +155,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           sent_at?: string | null
+          sending_started_at?: string | null
           status?: string
           user_id: string
         }
@@ -168,6 +170,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           sent_at?: string | null
+          sending_started_at?: string | null
           status?: string
           user_id?: string
         }
@@ -186,6 +189,7 @@ export type Database = {
           message_text: string | null
           phone: string
           sent_at: string | null
+          sending_started_at: string | null
           status: string
           user_id: string
         }
@@ -201,6 +205,7 @@ export type Database = {
           message_text?: string | null
           phone: string
           sent_at?: string | null
+          sending_started_at?: string | null
           status?: string
           user_id: string
         }
@@ -216,6 +221,7 @@ export type Database = {
           message_text?: string | null
           phone?: string
           sent_at?: string | null
+          sending_started_at?: string | null
           status?: string
           user_id?: string
         }

@@ -34,6 +34,18 @@ Deno.serve(async (req) => {
       : await loadActiveDriver();
     const token = config.token;
 
+    // Mensagem presa em 'sending' (função anterior encerrada à força, ex.: CPU
+    // esgotada) nunca chega ao catch. Envio iniciado há mais de 5 min — um lote
+    // dura no máximo ~4 min — ou sem horário registrado já morreu: vira falha.
+    const staleBefore = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    await supabase.from('group_messages')
+      .update({
+        status: 'failed',
+        error_message: 'Envio interrompido no servidor (tempo de processamento esgotado). Use "Reenviar falhas".',
+      })
+      .eq('user_id', user.id).eq('status', 'sending')
+      .or(`sending_started_at.is.null,sending_started_at.lt.${staleBefore}`);
+
     const { data: allMessages } = await supabase.from('group_messages').select('*')
       .eq('user_id', user.id).eq('status', 'queued')
       .order('created_at', { ascending: true }).order('ordering_index', { ascending: true });
@@ -54,12 +66,16 @@ Deno.serve(async (req) => {
       const to = msg.group_id.includes('@') ? msg.group_id : `${msg.group_id}@g.us`;
       let note: string | null = null;
       try {
-        await supabase.from('group_messages').update({ status: 'sending', attempts: msg.attempts + 1 }).eq('id', msg.id);
+        await supabase.from('group_messages')
+          .update({ status: 'sending', attempts: msg.attempts + 1, sending_started_at: new Date().toISOString() })
+          .eq('id', msg.id);
 
         if (msg.image_url) {
           const urlParts = msg.image_url.split('/whatsapp-files/');
           const filePath = urlParts[1];
+          if (!filePath) throw new Error('Endereço do arquivo inválido');
           const { data: signed } = await supabase.storage.from('whatsapp-files').createSignedUrl(filePath, 1800);
+          if (!signed?.signedUrl) throw new Error('Arquivo não encontrado no storage (pode ter sido apagado)');
           const filename = msg.file_name || filePath.split('/').pop() || 'file';
           const type = detectMediaType(filename, msg.file_type);
           console.log(
@@ -68,7 +84,7 @@ Deno.serve(async (req) => {
           );
           const caption = (type === 'audio' || type === 'sticker') ? '' : (msg.caption ?? '');
           await driver.sendMedia({
-            token, to, mediaUrl: signed!.signedUrl, type,
+            token, to, mediaUrl: signed.signedUrl, type,
             caption, fileName: filename,
           });
         } else if (msg.message_type === 'menu') {

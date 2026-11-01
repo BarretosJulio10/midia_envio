@@ -2,7 +2,11 @@
 // Auth: Authorization (admin token) for /admin/*; token header for user endpoints.
 // QR endpoint returns data.QRCode already as `data:image/png;base64,...`.
 import type { WhatsAppDriver, DriverCreds, DriverStatus, SendMediaInput } from "./types.ts";
-import { convertToStickerWebp, isWebpBytes, bytesToBase64 } from "../sticker-convert.ts";
+import { convertToStickerWebp, isWebpBytes, bytesToBase64, webpDimensions } from "../sticker-convert.ts";
+
+// Acima disso a conversão no servidor estoura a CPU da Edge Function.
+// (3,9 MB converteu em ~1s; 15 MB derrubou a função.)
+const STICKER_SERVER_MAX_BYTES = 4 * 1024 * 1024;
 
 export class FzapDriver implements WhatsAppDriver {
   slug = 'fzap';
@@ -224,22 +228,36 @@ export class FzapDriver implements WhatsAppDriver {
       const originalCT = fileRes.headers.get('content-type') || 'unknown';
       console.log(`[fzap-sticker] downloaded bytes=${original.length} content-type=${originalCT}`);
 
-      // 2) Converte SEMPRE para WEBP 512x512 transparente e gera thumbnail PNG
+      // 2) O painel já envia WEBP 512x512 pronto (convertido no navegador).
+      //    Nesse caso NÃO converte de novo: a conversão no servidor custa CPU e
+      //    estoura o limite da Edge Function (HTTP 546 "CPU Time exceeded").
       let webp: Uint8Array;
-      let pngThumbnail: Uint8Array;
-      try {
-        const conv = await convertToStickerWebp(original);
-        webp = conv.bytes;
-        pngThumbnail = conv.pngThumbnail;
-        console.log(
-          `[fzap-sticker] converted inputMime=${conv.log.inputDetected} ` +
-          `inputSize=${conv.log.inputSize} outputSize=${conv.log.outputSize} ` +
-          `thumbnailSize=${conv.log.thumbnailSize} ` +
-          `${conv.log.width}x${conv.log.height}`,
-        );
-      } catch (e: any) {
-        console.error(`[fzap-sticker] conversion failed: ${e?.message || e}`);
-        throw new Error(`fzap sendMedia(sticker) conversão falhou: ${e?.message || e}`);
+      const dims = webpDimensions(original);
+      if (dims && dims.width === 512 && dims.height === 512) {
+        webp = original;
+        console.log(`[fzap-sticker] webp 512x512 pronto — sem conversão no servidor`);
+      } else {
+        // Reserva para arquivos antigos. Imagem grande derruba a função por CPU,
+        // então falha cedo com uma mensagem clara em vez de travar em "enviando".
+        if (original.length > STICKER_SERVER_MAX_BYTES) {
+          const mb = (original.length / 1024 / 1024).toFixed(1);
+          throw new Error(
+            `Imagem grande demais para converter em figurinha no servidor (${mb} MB). ` +
+            `Adicione o arquivo de novo pelo painel: agora ele já é convertido no navegador.`,
+          );
+        }
+        try {
+          const conv = await convertToStickerWebp(original);
+          webp = conv.bytes;
+          console.log(
+            `[fzap-sticker] converted inputMime=${conv.log.inputDetected} ` +
+            `inputSize=${conv.log.inputSize} outputSize=${conv.log.outputSize} ` +
+            `${conv.log.width}x${conv.log.height}`,
+          );
+        } catch (e: any) {
+          console.error(`[fzap-sticker] conversion failed: ${e?.message || e}`);
+          throw new Error(`fzap sendMedia(sticker) conversão falhou: ${e?.message || e}`);
+        }
       }
 
       // 3) Validação dos magic bytes WEBP
@@ -248,17 +266,19 @@ export class FzapDriver implements WhatsAppDriver {
         throw new Error('fzap sendMedia(sticker): conversão produziu buffer não-WEBP');
       }
 
-      // 4) Monta payload conforme MessageSticker da FZAP v1.23.0
+      // 4) Monta payload conforme MessageSticker da FZAP v1.23.0.
+      //    `pngThumbnail` NÃO é enviado: é opcional e a FZAP espera base64 puro
+      //    nele; com o prefixo `data:image/png;base64,` ela responde
+      //    400 "could not decode Payload" e recusa o envio inteiro.
       const dataUrl = `data:image/webp;base64,${bytesToBase64(webp)}`;
       const body = this.withCheck({
         phone: p.to,
         sticker: dataUrl,
         mimeType: 'image/webp',
-        pngThumbnail: `data:image/png;base64,${bytesToBase64(pngThumbnail)}`,
       }, p.to);
       console.log(
         `[fzap-sticker] POST /chat/send/sticker mimeType=image/webp ` +
-        `payloadBytes=${dataUrl.length} thumbnailBytes=${pngThumbnail.length} kind=sticker`,
+        `payloadBytes=${dataUrl.length} kind=sticker`,
       );
 
       const res = await this.postWithGroupRetry('/chat/send/sticker', body, p.token, p.to);

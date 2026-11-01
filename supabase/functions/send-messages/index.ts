@@ -2,6 +2,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { loadActiveDriver, loadDriverBySlug } from "../_shared/drivers/index.ts";
 import { detectMediaType } from "../_shared/media-type.ts";
 
+const STALE_SENDING_MSG =
+  'Envio interrompido no servidor (tempo de processamento esgotado). Use "Reenviar Falhas".';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -31,6 +34,16 @@ Deno.serve(async (req) => {
     }
 
     // action === 'start' (default): processa UMA mensagem; frontend orquestra delays/pausas.
+
+    // Se a função anterior foi encerrada à força (ex.: "CPU Time exceeded"), a
+    // mensagem fica presa em 'sending' porque o catch nunca roda. Envio que
+    // começou há mais de 3 min (ou sem horário registrado) já morreu: vira falha.
+    const staleBefore = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    await supabase.from('messages')
+      .update({ status: 'failed', error_message: STALE_SENDING_MSG })
+      .eq('user_id', user.id).eq('status', 'sending')
+      .or(`sending_started_at.is.null,sending_started_at.lt.${staleBefore}`);
+
     const { data: config } = await supabase
       .from('fzap_config')
       .select('token, driver_slug')
@@ -51,7 +64,9 @@ Deno.serve(async (req) => {
 
     let sent = 0, failed = 0;
     try {
-      await supabase.from('messages').update({ status: 'sending' }).eq('id', msg.id);
+      await supabase.from('messages')
+        .update({ status: 'sending', sending_started_at: new Date().toISOString() })
+        .eq('id', msg.id);
 
       // Validação prévia: número está no WhatsApp?
       let target = msg.phone as string;
